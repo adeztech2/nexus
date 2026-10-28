@@ -2,7 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const settings = require('./settings');
 const { log } = require('./logger');
-const { getText, toNumber } = require('./lib/utils');
+const { getText } = require('./lib/utils');
+
+// Always strips the device suffix and domain: "61412345678:12@s.whatsapp.net" -> "61412345678"
+const toNumber = (j) => String(j || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 
 // Added to the end of every text reply (skipped if the text already has it, like the menu).
 const FOOTER = '> POWERED BY ADEZ TECH';
@@ -91,6 +94,25 @@ const unwrap = (m) => {
   return cur;
 };
 
+// WhatsApp may identify people by a hidden LID instead of their phone number.
+// Collect every id we can for the sender, including the real number if we can resolve it.
+async function resolveSenderIds(sock, msg, isGroup) {
+  const sender = isGroup ? msg.key.participant : msg.key.remoteJid;
+  const alt = isGroup ? msg.key.participantAlt : msg.key.remoteJidAlt;
+  const ids = [sender, alt].filter(Boolean);
+
+  for (const j of [...ids]) {
+    if (!j.endsWith('@lid')) continue;
+    try {
+      const pn = await sock.signalRepository?.lidMapping?.getPNForLID(j);
+      if (pn) ids.push(pn);
+    } catch {
+      // older Baileys without lidMapping: ignore
+    }
+  }
+  return ids;
+}
+
 async function handle(sock, msg) {
   if (!msg.message) return;
   const from = msg.key.remoteJid;
@@ -111,9 +133,16 @@ async function handle(sock, msg) {
 
   const isGroup = from.endsWith('@g.us');
   const sender = isGroup ? msg.key.participant : from;
-  // WhatsApp may identify people by a hidden LID; the real number can be in the "Alt" fields.
-  const senderIds = [sender, isGroup ? msg.key.participantAlt : msg.key.remoteJidAlt].filter(Boolean);
-  const isOwner = msg.key.fromMe || senderIds.some((j) => settings.owners.includes(toNumber(j)));
+  const senderIds = await resolveSenderIds(sock, msg, isGroup);
+  const senderNumbers = senderIds.map(toNumber);
+  // The number the bot is linked with (phone number and LID) always counts as an owner.
+  const botNumbers = [sock.user?.id, sock.user?.lid].filter(Boolean).map(toNumber);
+  const isOwner =
+    msg.key.fromMe ||
+    senderNumbers.some((n) => settings.owners.includes(n) || botNumbers.includes(n));
+
+  // Shows what the bot sees, so a wrong OWNER_NUMBER is easy to spot. Remove once working.
+  log.info(`[OWNER] fromMe=${!!msg.key.fromMe} ids=${senderIds.join(',')} -> ${senderNumbers.join(',')} | owners=${settings.owners.join(',')} | bot=${botNumbers.join(',')} | isOwner=${isOwner}`);
 
   if (settings.mode === 'private' && !isOwner) {
     return log.info(`[CMD] ignored "${cmd.name}": mode is private and sender is not the owner (sender=${sender})`);
@@ -166,4 +195,4 @@ async function handle(sock, msg) {
 }
 
 module.exports = { loadCommands, handle };
-  
+      
