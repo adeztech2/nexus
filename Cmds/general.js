@@ -3,22 +3,9 @@ const { formatUptime } = require('../lib/utils');
 const CATEGORY_ORDER = ['general', 'fun', 'group', 'owner'];
 const FOOTER = '> POWERED BY ADEZ TECH';
 
-const pad = (s, w) => s + ' '.repeat(Math.max(0, w - s.length));
-
-// Monospace table with one command per row, going down.
-function table(list, prefix) {
-  const names = list.map((c) => prefix + c.name);
-  const w = Math.max(7, ...names.map((n) => n.length));
-  const line = (l, r) => l + '─'.repeat(w + 2) + r;
-  const rows = [
-    line('┌', '┐'),
-    `│ ${pad('COMMAND', w)} │`,
-    line('├', '┤'),
-    ...names.map((n) => `│ ${pad(n, w)} │`),
-    line('└', '┘'),
-  ];
-  return '```\n' + rows.join('\n') + '\n```';
-}
+// One boxed section: title, then one command per line going down.
+const box = (title, lines) =>
+  [`┏━━━✧ ${title} ✧━━━━`, ...lines.map((l) => `┃✧ ${l}`), '┗━━━━━━━━━━━━━━━'].join('\n');
 
 module.exports = [
   {
@@ -34,16 +21,15 @@ module.exports = [
         return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
       });
 
-      const header =
-        `╭━━〔 *${settings.botName.toUpperCase()}* 〕━━╮\n` +
-        `┃ Prefix   : ${prefix}\n` +
-        `┃ Mode     : ${settings.mode}\n` +
-        `┃ Uptime   : ${formatUptime(process.uptime())}\n` +
-        `┃ Commands : ${commands.size}\n` +
-        `╰━━━━━━━━━━━━━━━━━━╯`;
+      const header = box(settings.botName.toUpperCase(), [
+        `Prefix: [ ${prefix} ]`,
+        `Mode: ${settings.mode}`,
+        `Uptime: ${formatUptime(process.uptime())}`,
+        `Commands: ${commands.size}`,
+      ]);
 
       const body = cats
-        .map((cat) => `*${cat.toUpperCase()}*\n${table(groups[cat], prefix)}`)
+        .map((cat) => box(cat.toUpperCase(), groups[cat].map((c) => prefix + c.name)))
         .join('\n\n');
 
       const full = `${header}\n\n${body}\n\n${FOOTER}`;
@@ -54,7 +40,7 @@ module.exports = [
           // Everything fits in one image caption.
           await sock.sendMessage(from, { image: { url: image }, caption: full }, { quoted: msg });
         } else if (image) {
-          // Caption would be too long: picture + header, then the command tables.
+          // Caption would be too long: picture + header, then the command boxes.
           await sock.sendMessage(from, { image: { url: image }, caption: header }, { quoted: msg });
           await sock.sendMessage(from, { text: `${body}\n\n${FOOTER}` }, { quoted: msg });
         } else {
