@@ -8,6 +8,7 @@ const {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   DisconnectReason,
+  Browsers,
 } = require('@whiskeysockets/baileys');
 
 const settings = require('./settings');
@@ -100,7 +101,7 @@ async function start() {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
     },
-    browser: [settings.botName, 'Chrome', '1.0.0'],
+    browser: Browsers.ubuntu('Chrome'),
     markOnlineOnConnect: false,
   });
 
