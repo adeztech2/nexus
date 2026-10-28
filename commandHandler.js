@@ -5,8 +5,48 @@ const { log } = require('./logger');
 const { getText, toNumber } = require('./lib/utils');
 
 // Added to the end of every text reply (skipped if the text already has it, like the menu).
-const FOOTER = '👣\n> POWERED BY ADEZ TECH';
+const FOOTER = '> POWERED BY ADEZ TECH';
 const withFooter = (t) => (String(t).includes('POWERED BY ADEZ TECH') ? String(t) : `${t}\n\n${FOOTER}`);
+
+// Put every reply in the same box style as the CONNECTED message.
+// Text that is already boxed (like the menu) is left alone.
+const { box } = require('./lib/table');
+const framed = (raw, title) => {
+  const s = String(raw);
+  return /[┌┏]/.test(s) ? s : box(title, s.split('\n'));
+};
+
+const CHANNEL_LINK = 'https://whatsapp.com/channel/0029Vb8N0xYLikgHxdGh790m';
+const CHANNEL_CODE = '0029Vb8N0xYLikgHxdGh790m';
+
+// Look up the channel's ID once and remember it.
+let channelInfo = null;
+async function getChannel(sock) {
+  if (channelInfo) return channelInfo;
+  try {
+    const m = await sock.newsletterMetadata('invite', CHANNEL_CODE);
+    channelInfo = { jid: m.id, name: m.name || '' };
+  } catch (e) {
+    log.error('Could not load the channel info:', e);
+  }
+  return channelInfo;
+}
+
+// When forwarding is on, replies show "Forwarded many times", and look like they
+// came from your channel if the channel could be loaded.
+async function fwd(sock) {
+  if (!settings.forwarded) return {};
+  const contextInfo = { isForwarded: true, forwardingScore: 999 };
+  const c = await getChannel(sock);
+  if (c) {
+    contextInfo.forwardedNewsletterMessageInfo = {
+      newsletterJid: c.jid,
+      newsletterName: c.name,
+      serverMessageId: -1,
+    };
+  }
+  return { contextInfo };
+}
 
 const commands = new Map(); // name or alias -> command
 const unique = new Set(); // each command once, for the menu
@@ -82,13 +122,13 @@ async function handle(sock, msg) {
 
   // Reply, and if sending fails, say why in the log (and retry once without quoting).
   const reply = async (raw) => {
-    const t = withFooter(raw);
+    const t = withFooter(framed(raw, cmd.name.toUpperCase()));
     try {
-      return await sock.sendMessage(from, { text: t }, { quoted: msg });
+      return await sock.sendMessage(from, { text: t, ...(await fwd(sock)) }, { quoted: msg });
     } catch (e1) {
       log.error(`Reply failed (with quote) to ${from}:`, e1);
       try {
-        return await sock.sendMessage(from, { text: t });
+        return await sock.sendMessage(from, { text: t, ...(await fwd(sock)) });
       } catch (e2) {
         log.error(`Reply failed (plain) to ${from}:`, e2);
         throw e2;
@@ -100,6 +140,7 @@ async function handle(sock, msg) {
     sock, msg, from, sender, isGroup, isOwner, args,
     text: args.join(' '), command: rawName.toLowerCase(), reply,
     prefix: settings.prefix, commands: unique, settings,
+    fwd: () => fwd(sock), channel: () => getChannel(sock), channelLink: CHANNEL_LINK,
   };
 
   try {
@@ -125,4 +166,4 @@ async function handle(sock, msg) {
 }
 
 module.exports = { loadCommands, handle };
-      
+  
