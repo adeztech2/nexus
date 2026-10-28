@@ -15,6 +15,7 @@ const settings = require('./settings');
 const { log, baileysLogger } = require('./logger');
 const { loadCommands, handle } = require('./commandHandler');
 const { createSessionId, restoreSession } = require('./lib/session');
+const { getText } = require('./lib/utils');
 
 loadCommands();
 
@@ -89,6 +90,25 @@ async function sendSessionId(sock) {
   }
 }
 
+// WhatsApp alert to you (the linked account and any OWNER_NUMBER) whenever the bot connects.
+// A 2-minute cooldown prevents spam if the connection keeps flapping.
+let lastAlert = 0;
+async function notifyConnected(sock) {
+  if (!settings.connectAlert || Date.now() - lastAlert < 2 * 60 * 1000) return;
+  lastAlert = Date.now();
+  try {
+    const me = sock.user.id.replace(/:\d+@/, '@');
+    const targets = new Set([me, ...settings.owners.map((n) => `${n}@s.whatsapp.net`)]);
+    const text =
+      `✅ *${settings.botName}* is connected\n` +
+      `Mode: ${settings.mode}\nPrefix: ${settings.prefix}\n` +
+      `Time: ${new Date().toUTCString()}\n\nSend ${settings.prefix}menu to see commands.`;
+    for (const jid of targets) await sock.sendMessage(jid, { text });
+  } catch (e) {
+    log.error('Could not send connect alert:', e.message);
+  }
+}
+
 async function start() {
   fs.mkdirSync(settings.sessionDir, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(settings.sessionDir);
@@ -128,6 +148,7 @@ async function start() {
     if (connection === 'open') {
       log.info(`${settings.botName} connected as ${sock.user?.id}`);
       sendSessionId(sock);
+      setTimeout(() => notifyConnected(sock), 3000);
     }
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode;
@@ -141,8 +162,14 @@ async function start() {
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
     for (const msg of messages) {
+      // Accept live messages, plus your own recent messages synced from your phone.
+      const age = Date.now() / 1000 - Number(String(msg.messageTimestamp || 0));
+      if (type !== 'notify' && !(type === 'append' && msg.key.fromMe && age < 60)) continue;
+      log.info(
+        `[MSG] type=${type} from=${msg.key.remoteJid} fromMe=${!!msg.key.fromMe} ` +
+          `text="${getText(msg.message).slice(0, 40)}"`
+      );
       if (settings.autoRead && !msg.key.fromMe) sock.readMessages([msg.key]).catch(() => {});
       await handle(sock, msg);
     }
@@ -153,3 +180,4 @@ process.on('unhandledRejection', (e) => log.error('Unhandled rejection:', e));
 process.on('uncaughtException', (e) => log.error('Uncaught exception:', e));
 
 start();
+        
