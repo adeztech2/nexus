@@ -12,12 +12,19 @@ const toNumber = (j) => String(j || '').split('@')[0].split(':')[0].replace(/\D/
 const FOOTER = '> POWERED BY ADEZ TECH';
 const withFooter = (t) => (String(t).includes('POWERED BY ADEZ TECH') ? String(t) : `${t}\n\n${FOOTER}`);
 
-// Put every reply in the same box style as the CONNECTED message.
-// Text that is already boxed (like the menu) is left alone.
-const { box } = require('./lib/table');
-const framed = (raw, title) => {
+// Make every reply bold. WhatsApp bold needs the stars on each line, so wrap line by line.
+// Text that is already formatted by a command (like the menu box) is left alone.
+const bold = (raw) => {
   const s = String(raw);
-  return /[┌┏]/.test(s) ? s : box(title, s.split('\n'));
+  if (/[┌┏]/.test(s) || s.includes('```')) return s;
+  return s
+    .split('\n')
+    .map((line) => {
+      const m = line.match(/^(\s*)(.*?)(\s*)$/);
+      const body = m[2].replace(/\*/g, '');
+      return body ? `${m[1]}*${body}*${m[3]}` : line;
+    })
+    .join('\n');
 };
 
 // The channel can be changed with the owner command "setchannel"; this is the default.
@@ -25,22 +32,29 @@ const DEFAULT_CHANNEL_LINK = 'https://whatsapp.com/channel/0029Vb8N0xYLikgHxdGh7
 const channelLink = () => settings.channelLink || DEFAULT_CHANNEL_LINK;
 const channelCode = () => (channelLink().match(/channel\/([A-Za-z0-9_-]+)/) || [])[1];
 
-// Look up the channel's ID once and remember it.
+// Name shown on every forwarded reply ("Forwarded from ...").
+const FORWARD_NAME = 'ADEZ TECH';
+
+// Look up the channel's ID once and remember it. If the lookup fails, wait a minute before retrying
+// so every reply doesn't pay for a failed request.
 let channelInfo = null;
+let channelFailed = { code: null, at: 0 };
 async function getChannel(sock) {
   const code = channelCode();
   if (channelInfo && channelInfo.code === code) return channelInfo;
+  if (channelFailed.code === code && Date.now() - channelFailed.at < 60000) return null;
   try {
     const m = await sock.newsletterMetadata('invite', code);
     channelInfo = { code, jid: m.id, name: m.name || '' };
   } catch (e) {
+    channelFailed = { code, at: Date.now() };
     log.error('Could not load the channel info:', e);
   }
   return channelInfo;
 }
 
 // When forwarding is on, replies show "Forwarded many times", and look like they
-// came from your channel if the channel could be loaded.
+// came from your channel (shown as ADEZ TECH) if the channel could be loaded.
 async function fwd(sock) {
   if (!settings.forwarded) return {};
   const contextInfo = { isForwarded: true, forwardingScore: 999 };
@@ -48,7 +62,7 @@ async function fwd(sock) {
   if (c) {
     contextInfo.forwardedNewsletterMessageInfo = {
       newsletterJid: c.jid,
-      newsletterName: c.name,
+      newsletterName: FORWARD_NAME,
       serverMessageId: -1,
     };
   }
@@ -172,7 +186,7 @@ async function handle(sock, msg) {
 
   // Reply, and if sending fails, say why in the log (and retry once without quoting).
   const reply = async (raw) => {
-    const t = withFooter(framed(raw, cmd.name.toUpperCase()));
+    const t = withFooter(bold(raw));
     try {
       return await sock.sendMessage(from, { text: t, ...(await fwd(sock)) }, { quoted: msg });
     } catch (e1) {
