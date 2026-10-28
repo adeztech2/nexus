@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: nexus-md-wa-bot
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: SESSION_ID
+        sync: false
+      - key: OWNER_NUMBER
+        sync: false
+      - key: BOT_NAME
+        value: Nexus
+      - key: PREFIX
+        value: "."
+      - key: MODE
+        value: public
+      - key: TIMEZONE
+        value: Africa/Nairobi
+      - key: CONNECT_ALERT
+        value: "true"
+      - key: AUTO_READ
+        value: "false"
