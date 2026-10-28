@@ -139,11 +139,6 @@ module.exports = [
     run: async ({ reply, prefix }) => reply(`Current prefix: [ ${prefix} ]`),
   },
   {
-    name: 'mode',
-    description: 'Show whether the bot is in public or private mode',
-    run: async ({ reply, settings }) => reply(`Bot mode: ${settings.mode}`),
-  },
-  {
     name: 'jid',
     aliases: ['chatid'],
     description: 'Show the ID of this chat',
@@ -172,4 +167,4 @@ module.exports = [
     },
   },
 ];
-    
+                    
