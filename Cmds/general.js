@@ -37,13 +37,9 @@ module.exports = [
       const image = settings.menuImage;
 
       try {
-        if (image && full.length <= 1000) {
-          // Everything fits in one image caption.
+        if (image) {
+          // One message: the picture with the whole menu as its caption.
           await sock.sendMessage(from, { image: { url: image }, caption: full }, { quoted: msg });
-        } else if (image) {
-          // Caption would be too long: picture + header, then the command boxes.
-          await sock.sendMessage(from, { image: { url: image }, caption: header }, { quoted: msg });
-          await sock.sendMessage(from, { text: `${body}\n\n${FOOTER}` }, { quoted: msg });
         } else {
           await reply(full);
         }
@@ -167,4 +163,3 @@ module.exports = [
     },
   },
 ];
-      
