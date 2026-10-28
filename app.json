@@ -1,45 +1,24 @@
 {
   "name": "Nexus",
-  "description": "Nexus - a simple, modular WhatsApp bot",
+  "description": "Nexus WhatsApp bot",
   "repository": "https://github.com/adeztech2/nexus",
-  "keywords": ["whatsapp", "bot", "baileys", "nodejs"],
-  "buildpacks": [
-    { "url": "heroku/nodejs" }
-  ],
-  "formation": {
-    "web": {
-      "quantity": 1,
-      "size": "basic"
-    }
-  },
+  "keywords": ["whatsapp", "bot", "nodejs"],
+  "stack": "heroku-22",
+  "buildpacks": [{ "url": "heroku/nodejs" }],
   "env": {
-    "BOT_NAME": {
-      "description": "Name of your bot",
-      "value": "Nexus",
-      "required": false
-    },
-    "PREFIX": {
-      "description": "Command prefix",
-      "value": ".",
-      "required": false
+    "SESSION_ID": {
+      "description": "Session ID from the pair site (starts with NEXUS~)",
+      "required": true
     },
     "OWNER_NUMBER": {
-      "description": "Your WhatsApp number, digits only with country code (e.g. 254712345678)",
+      "description": "Your number, digits only with country code",
       "required": true
     },
-    "MODE": {
-      "description": "public (everyone can use commands) or private (owner only)",
-      "value": "public",
-      "required": false
-    },
-    "SESSION_ID": {
-      "description": "Session ID from your /pair page (starts with NEXUS~). Keep it secret.",
-      "required": true
-    },
-    "CONNECT_ALERT": {
-      "description": "Send yourself a WhatsApp message when the bot connects (true/false)",
-      "value": "true",
-      "required": false
-    }
+    "BOT_NAME": { "value": "Nexus" },
+    "PREFIX": { "value": "." },
+    "MODE": { "value": "public" }
+  },
+  "formation": {
+    "web": { "quantity": 1, "size": "basic" }
   }
 }
