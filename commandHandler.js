@@ -3,6 +3,7 @@ const path = require('path');
 const settings = require('./settings');
 const { log } = require('./logger');
 const { getText } = require('./lib/utils');
+const store = require('./lib/store');
 
 // Always strips the device suffix and domain: "61412345678:12@s.whatsapp.net" -> "61412345678"
 const toNumber = (j) => String(j || '').split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -19,16 +20,19 @@ const framed = (raw, title) => {
   return /[┌┏]/.test(s) ? s : box(title, s.split('\n'));
 };
 
-const CHANNEL_LINK = 'https://whatsapp.com/channel/0029Vb8N0xYLikgHxdGh790m';
-const CHANNEL_CODE = '0029Vb8N0xYLikgHxdGh790m';
+// The channel can be changed with the owner command "setchannel"; this is the default.
+const DEFAULT_CHANNEL_LINK = 'https://whatsapp.com/channel/0029Vb8N0xYLikgHxdGh790m';
+const channelLink = () => settings.channelLink || DEFAULT_CHANNEL_LINK;
+const channelCode = () => (channelLink().match(/channel\/([A-Za-z0-9_-]+)/) || [])[1];
 
 // Look up the channel's ID once and remember it.
 let channelInfo = null;
 async function getChannel(sock) {
-  if (channelInfo) return channelInfo;
+  const code = channelCode();
+  if (channelInfo && channelInfo.code === code) return channelInfo;
   try {
-    const m = await sock.newsletterMetadata('invite', CHANNEL_CODE);
-    channelInfo = { jid: m.id, name: m.name || '' };
+    const m = await sock.newsletterMetadata('invite', code);
+    channelInfo = { code, jid: m.id, name: m.name || '' };
   } catch (e) {
     log.error('Could not load the channel info:', e);
   }
@@ -51,6 +55,16 @@ async function fwd(sock) {
   return { contextInfo };
 }
 
+// Group info is cached for a minute, so admin-only commands don't wait on WhatsApp each time.
+const metaCache = new Map(); // group -> { at, meta }
+async function groupMeta(sock, jid) {
+  const hit = metaCache.get(jid);
+  if (hit && Date.now() - hit.at < 60000) return hit.meta;
+  const meta = await sock.groupMetadata(jid);
+  metaCache.set(jid, { at: Date.now(), meta });
+  return meta;
+}
+
 const commands = new Map(); // name or alias -> command
 const unique = new Set(); // each command once, for the menu
 
@@ -67,6 +81,7 @@ function loadCommands() {
       for (const n of [cmd.name, ...(cmd.aliases || [])]) commands.set(n.toLowerCase(), cmd);
     }
   }
+  store.load(settings); // settings changed by owner commands (prefix, bot name, ...)
   log.info(`Loaded ${unique.size} commands`);
   log.info(`Prefix "${settings.prefix}" | mode ${settings.mode} | owners ${settings.owners.length}`);
 }
@@ -137,6 +152,8 @@ async function handle(sock, msg) {
   const senderNumbers = senderIds.map(toNumber);
   // The number the bot is linked with (phone number and LID) always counts as an owner.
   const botNumbers = [sock.user?.id, sock.user?.lid].filter(Boolean).map(toNumber);
+  const botNumber = toNumber(sock.user?.id);
+  if (/^\d{7,}$/.test(botNumber) && !settings.owners.includes(botNumber)) settings.owners.push(botNumber);
   const isOwner =
     msg.key.fromMe ||
     senderNumbers.some((n) => settings.owners.includes(n) || botNumbers.includes(n));
@@ -147,7 +164,11 @@ async function handle(sock, msg) {
   if (settings.mode === 'private' && !isOwner) {
     return log.info(`[CMD] ignored "${cmd.name}": mode is private and sender is not the owner (sender=${sender})`);
   }
-  log.info(`[CMD] running "${cmd.name}" (owner=${isOwner}, group=${isGroup})`);
+  // How long the message waited before we got to it (WhatsApp delivery + queue), in seconds.
+  const sentAt = Number(msg.messageTimestamp?.low ?? msg.messageTimestamp) || 0;
+  const lag = sentAt ? Math.max(0, Date.now() / 1000 - sentAt).toFixed(1) : '?';
+  const started = Date.now();
+  log.info(`[CMD] running "${cmd.name}" (owner=${isOwner}, group=${isGroup}, delivery lag=${lag}s)`);
 
   // Reply, and if sending fails, say why in the log (and retry once without quoting).
   const reply = async (raw) => {
@@ -169,7 +190,7 @@ async function handle(sock, msg) {
     sock, msg, from, sender, isGroup, isOwner, args,
     text: args.join(' '), command: rawName.toLowerCase(), reply,
     prefix: settings.prefix, commands: unique, settings,
-    fwd: () => fwd(sock), channel: () => getChannel(sock), channelLink: CHANNEL_LINK,
+    fwd: () => fwd(sock), channel: () => getChannel(sock), channelLink: channelLink(), botNumber,
   };
 
   try {
@@ -177,7 +198,7 @@ async function handle(sock, msg) {
     if (cmd.groupOnly && !isGroup) return reply('This command only works in groups.');
 
     if (cmd.adminOnly || cmd.botAdmin) {
-      const meta = await sock.groupMetadata(from);
+      const meta = await groupMeta(sock, from);
       const me = [sock.user?.id, sock.user?.lid].filter(Boolean).map((j) => j.replace(/:\d+@/, '@'));
       const admins = meta.participants.filter((p) => p.admin);
       ctx.groupMetadata = meta;
@@ -188,6 +209,8 @@ async function handle(sock, msg) {
     }
 
     await cmd.run(ctx);
+    log.info(`[CMD] "${cmd.name}" finished in ${Date.now() - started}ms`);
+    if (cmd.ownerOnly) store.save(settings); // keep owner changes (prefix, bot name, ...)
   } catch (err) {
     log.error(`Command "${cmd.name}" failed:`, err);
     reply('Something went wrong running that command.').catch(() => {});
