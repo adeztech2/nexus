@@ -36,13 +36,16 @@ async function handle(sock, msg) {
 
   const [rawName, ...args] = text.slice(settings.prefix.length).split(/\s+/);
   const cmd = commands.get((rawName || '').toLowerCase());
-  if (!cmd) return;
+  if (!cmd) return log.info(`[CMD] unknown command "${rawName}"`);
 
   const isGroup = from.endsWith('@g.us');
   const sender = isGroup ? msg.key.participant : from;
   const isOwner = msg.key.fromMe || settings.owners.includes(toNumber(sender));
 
-  if (settings.mode === 'private' && !isOwner) return;
+  if (settings.mode === 'private' && !isOwner) {
+    return log.info(`[CMD] ignored "${cmd.name}": mode is private and sender is not the owner`);
+  }
+  log.info(`[CMD] running "${cmd.name}" (owner=${isOwner}, group=${isGroup})`);
 
   const reply = (t) => sock.sendMessage(from, { text: t }, { quoted: msg });
   const ctx = {
