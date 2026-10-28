@@ -28,12 +28,43 @@ if (settings.sessionId && !fs.existsSync(path.join(settings.sessionDir, 'creds.j
 }
 
 // Tiny web server so hosts like Render/Heroku see an open port and keep the service alive.
+const hits = new Map(); // ip -> [timestamps] for a simple rate limit on pairing requests
+const limited = (ip) => {
+  const now = Date.now();
+  const list = (hits.get(ip) || []).filter((t) => now - t < 10 * 60 * 1000);
+  list.push(now);
+  hits.set(ip, list);
+  return list.length > 5;
+};
+const json = (res, status, body) => {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+};
+
 http
-  .createServer((_, res) => {
+  .createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+
+    if (url.pathname === '/pair' || url.pathname === '/pair.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'public', 'pair.html')));
+    }
+
+    if (url.pathname === '/api/pair') {
+      const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+      if (limited(ip)) return json(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
+      try {
+        const code = await require('./lib/pair').createPairing(url.searchParams.get('number'));
+        return json(res, 200, { code });
+      } catch (e) {
+        return json(res, 400, { error: e.message });
+      }
+    }
+
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end(`${settings.botName} is running`);
   })
-  .listen(settings.port, () => log.info(`Health server on port ${settings.port}`));
+  .listen(settings.port, () => log.info(`Web server on port ${settings.port} (pair page at /pair)`));
 
 // After the first successful link, DM the session ID to the linked account (once).
 async function sendSessionId(sock) {
@@ -121,4 +152,4 @@ process.on('unhandledRejection', (e) => log.error('Unhandled rejection:', e));
 process.on('uncaughtException', (e) => log.error('Uncaught exception:', e));
 
 start();
-  
+    
