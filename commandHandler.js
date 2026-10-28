@@ -4,6 +4,10 @@ const settings = require('./settings');
 const { log } = require('./logger');
 const { getText, toNumber } = require('./lib/utils');
 
+// Added to the end of every text reply (skipped if the text already has it, like the menu).
+const FOOTER = '👣\n> POWERED BY ADEZ TECH';
+const withFooter = (t) => (String(t).includes('POWERED BY ADEZ TECH') ? String(t) : `${t}\n\n${FOOTER}`);
+
 const commands = new Map(); // name or alias -> command
 const unique = new Set(); // each command once, for the menu
 
@@ -53,6 +57,12 @@ async function handle(sock, msg) {
   if (!from || from === 'status@broadcast') return;
 
   const text = (getText(unwrap(msg.message)) || '').trim();
+  // Temporary debug: show what kind of message had no readable text (remove once fixed).
+  if (!text && (msg.key.fromMe || !from.endsWith('@g.us'))) {
+    const quiet = ['protocolMessage', 'reactionMessage', 'senderKeyDistributionMessage', 'messageContextInfo'];
+    const keys = Object.keys(msg.message);
+    if (keys.some((k) => !quiet.includes(k))) log.info(`[DEBUG] no text in ${from}: keys=${keys.join(',')}`);
+  }
   if (!text.startsWith(settings.prefix)) return;
 
   const [rawName, ...args] = text.slice(settings.prefix.length).split(/\s+/);
@@ -71,7 +81,8 @@ async function handle(sock, msg) {
   log.info(`[CMD] running "${cmd.name}" (owner=${isOwner}, group=${isGroup})`);
 
   // Reply, and if sending fails, say why in the log (and retry once without quoting).
-  const reply = async (t) => {
+  const reply = async (raw) => {
+    const t = withFooter(raw);
     try {
       return await sock.sendMessage(from, { text: t }, { quoted: msg });
     } catch (e1) {
@@ -114,4 +125,4 @@ async function handle(sock, msg) {
 }
 
 module.exports = { loadCommands, handle };
-    
+      
