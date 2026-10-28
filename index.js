@@ -179,6 +179,12 @@ async function start() {
         log.error('Logged out. Delete the session folder and link the bot again.');
         process.exit(1);
       }
+      // 440: the same session was opened somewhere else (for example an overlapping deploy).
+      // Stop this copy instead of fighting the other one.
+      if (code === DisconnectReason.connectionReplaced) {
+        log.error('Session opened somewhere else (440). Stopping this copy.');
+        process.exit(0);
+      }
       log.warn(`Connection closed (${code}). Reconnecting...`);
       setTimeout(start, 3000);
     }
@@ -203,4 +209,3 @@ process.on('unhandledRejection', (e) => log.error('Unhandled rejection:', e));
 process.on('uncaughtException', (e) => log.error('Uncaught exception:', e));
 
 start();
-  
