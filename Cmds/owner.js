@@ -60,6 +60,36 @@ module.exports = [
 
   // ---- New owner commands ----
   {
+    name: 'followchannel',
+    aliases: ['follow'],
+    description: 'Make the bot follow your channel',
+    ownerOnly: true,
+    run: async ({ sock, reply, channel }) => {
+      const c = await channel();
+      if (!c) return reply('Could not load the channel.');
+      try {
+        await sock.newsletterFollow(c.jid);
+        await reply(`Now following ${c.name || 'the channel'}.`);
+      } catch {
+        await reply('Could not follow the channel (it may already be followed).');
+      }
+    },
+  },
+  {
+    name: 'forwarding',
+    aliases: ['forward', 'fwd'],
+    description: 'Turn the "Forwarded" tag on bot replies on or off (until restart)',
+    ownerOnly: true,
+    run: async ({ reply, args, settings, prefix }) => {
+      const v = (args[0] || '').toLowerCase();
+      if (!['on', 'off'].includes(v)) {
+        return reply(`Forwarding is ${settings.forwarded ? 'ON' : 'OFF'}\nUsage: ${prefix}forwarding on|off`);
+      }
+      settings.forwarded = v === 'on';
+      await reply(`Forwarding turned *${v.toUpperCase()}* (until restart).`);
+    },
+  },
+  {
     name: 'setprefix',
     description: 'Change the command prefix (until restart)',
     ownerOnly: true,
