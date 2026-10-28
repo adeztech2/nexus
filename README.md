@@ -1,71 +1,75 @@
-# Nexus
+<h1 align="center">NEXUS</h1>
 
-A simple, modular WhatsApp bot built on [Baileys](https://github.com/WhiskeySockets/Baileys).
+<div style="text-align: center;">
+  <a href="https://github.com/adeztech2/nexus">
+    <img src="https://u.pone.rs/vluuzjpq.jpeg" alt="Nexus" border="0" /></a>
+  <hr style="margin-top: 20px; margin-bottom: 20px;"/>
+</div>
 
-## Quick start
+<table align="center" cellpadding="10" border="1">
+  <tr>
+    <td align="center">
+      <b>FORK</b><br>
+      Fork the repository to customize and use the bot for your needs.
+      <br><br>
+      <a href="https://github.com/adeztech2/nexus/fork">
+        <img src="https://img.shields.io/badge/FORK-this%20repo-purple" alt="Fork Nexus" width="150">
+      </a>
+    </td>
+    <td align="center">
+      <b>SESSION</b><br>
+      Link your session ID to start using the bot. Follow the steps if issues arise.
+      <br><br>
+      <a href="https://nexus-md-pair.vercel.app/">
+        <img src="https://img.shields.io/badge/Pair%20session%20code-white" alt="Pair session code" width="300">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>DOWNLOAD ZIP</b><br>
+      Download the latest Nexus zip.
+      <br><br>
+      <a href="https://github.com/adeztech2/nexus/archive/refs/heads/main.zip">
+        <img src="https://img.shields.io/badge/Download-ZIP-blue" alt="Download zip" width="200">
+      </a>
+    </td>
+    <td align="center">
+      <b>DEPLOY</b><br>
+      Deploy the bot to your platform of choice using the button below.
+      <br><br>
+      <a href="https://render.com/deploy?repo=https://github.com/adeztech2/nexus">
+        <img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <b>NEXUS CHANNEL</b><br>
+      Follow the official channel for updates and announcements.
+      <br><br>
+      <a href="https://whatsapp.com/channel/0029Vb8N0xYLikgHxdGh790m">
+        <img src="https://img.shields.io/badge/Join%20Channel-WhatsApp-brightgreen" alt="Nexus Channel" width="300">
+      </a>
+    </td>
+  </tr>
+</table>
 
-```bash
-npm install
-# edit set.env: OWNER_NUMBER (digits only, with country code), optionally PAIRING_NUMBER
-npm start
-```
+<br>
 
-- **QR login:** leave `PAIRING_NUMBER` empty, scan the QR from the terminal (WhatsApp > Linked devices).
-- **Pairing code:** set `PAIRING_NUMBER` to your number; the code is printed in the logs.
+## Setup
 
-## Session ID
+1. Open the **SESSION** link above, enter your number with country code, and enter the pairing code in WhatsApp under Linked devices.
+2. Copy the session ID sent to your WhatsApp chat with yourself.
+3. Set these variables on your host (or in `set.env`):
 
-After the first successful link, Nexus sends a **session ID** (starts with `NEXUS~`) to your own
-WhatsApp chat ("Message yourself") and prints a note in the logs. You can also get it later with
-`.session` in a private chat.
-
-To deploy without re-linking, set it as the `SESSION_ID` environment variable on your host
-(Render, Heroku, etc.). Treat it like a password: anyone with it controls your WhatsApp account.
-
-## Pair page
-
-Once Nexus is running, open `https://<your-host>/pair` (or `http://localhost:3000/pair`).
-Enter your number, get a pairing code, enter it in WhatsApp > Linked devices, and your
-session ID is sent to your own chat. The page lives in `public/pair.html`.
-
-## Commands (default prefix `.`)
-
-| Category | Commands |
+| Variable | Description |
 | --- | --- |
-| general | menu, ping, alive, owner, say |
-| fun | joke, flip, dice, 8ball |
-| group | groupinfo, tagall, kick, promote, demote, mute, unmute, link |
-| owner | mode, broadcast, session |
+| `SESSION_ID` | The session ID from step 2 (starts with `NEXUS~`) |
+| `OWNER_NUMBER` | Your number, digits only with country code |
+| `PREFIX` | Command prefix, default `.` |
+| `MODE` | `public` or `private` |
 
-## Adding a command
+4. Deploy and send `.menu` to check it works.
 
-Drop a file into `Cmds/` that exports an object (or array of objects):
-
-```js
-module.exports = {
-  name: 'hello',
-  aliases: ['hi'],
-  description: 'Say hello',
-  // ownerOnly, groupOnly, adminOnly, botAdmin are optional flags
-  run: async ({ reply, sender }) => reply('Hello!'),
-};
-```
-
-It is picked up automatically on the next start and appears in `.menu`.
-
-## Deploy
-
-A `Dockerfile` is included. On Render/Heroku/Railway, set the variables from `set.env`
-as environment variables. The bot's login lives in `session/`, so attach a persistent
-disk there (or set `SESSION_DIR`), otherwise you will need to re-link after each restart.
-
-## Structure
-
-```
-index.js           connection, login, reconnects
-commandHandler.js  command loading, permissions, dispatch
-settings.js        config from set.env / environment
-logger.js          logging
-lib/utils.js       helpers
-Cmds/              command modules
-```
+<p align="center">POWERED BY ADEZ TECH</p>
