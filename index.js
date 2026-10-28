@@ -19,10 +19,13 @@ const { getText } = require('./lib/utils');
 
 loadCommands();
 
+let restoredFromEnv = false;
+
 // Log in from SESSION_ID if provided (only when no local session exists yet).
 if (settings.sessionId && !fs.existsSync(path.join(settings.sessionDir, 'creds.json'))) {
   try {
     restoreSession(settings.sessionDir, settings.sessionId);
+    restoredFromEnv = true;
     log.info('Session restored from SESSION_ID');
   } catch (e) {
     log.error('SESSION_ID is invalid:', e.message);
@@ -99,10 +102,30 @@ async function notifyConnected(sock) {
   try {
     const me = sock.user.id.replace(/:\d+@/, '@');
     const targets = new Set([me, ...settings.owners.map((n) => `${n}@s.whatsapp.net`)]);
+    const platform = process.env.RENDER
+      ? '☁️ Render'
+      : process.env.DYNO
+      ? '☁️ Heroku'
+      : process.env.RAILWAY_ENVIRONMENT
+      ? '☁️ Railway'
+      : '🖥️ Server';
+    const time = new Date().toLocaleString('en-US', { timeZone: settings.timezone });
     const text =
-      `✅ *${settings.botName}* is connected\n` +
-      `Mode: ${settings.mode}\nPrefix: ${settings.prefix}\n` +
-      `Time: ${new Date().toUTCString()}\n\nSend ${settings.prefix}menu to see commands.`;
+      `┏━━━✧ CONNECTED ✧━━━━\n` +
+      `┃✧ Bot: ${settings.botName}\n` +
+      `┃✧ Prefix: [ ${settings.prefix} ]\n` +
+      `┃✧ Owner: ${settings.owners[0] || me.split('@')[0]}\n` +
+      `┃✧ Mode: ${settings.mode}\n` +
+      `┃✧ Platform: ${platform}\n` +
+      `┃✧ Status: online\n` +
+      `┃✧ Time: ${time}\n` +
+      `┃✧ Repo: ${settings.repo}\n` +
+      `┗━━━━━━━━━━━━━━━\n\n` +
+      `🔥 WARMING UP…\n\n` +
+      `${restoredFromEnv ? 'Session restored' : 'Session linked'} — bot is online ✅\n\n` +
+      `First replies may be slow for 2–3 minutes\n` +
+      `while keys rebuild. Then: instant ⚡\n\n` +
+      `> POWERED BY ADEZ TECH`;
     for (const jid of targets) await sock.sendMessage(jid, { text });
   } catch (e) {
     log.error('Could not send connect alert:', e.message);
@@ -180,4 +203,4 @@ process.on('unhandledRejection', (e) => log.error('Unhandled rejection:', e));
 process.on('uncaughtException', (e) => log.error('Uncaught exception:', e));
 
 start();
-        
+  
