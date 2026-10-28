@@ -20,5 +20,8 @@ module.exports = {
   connectAlert: String(process.env.CONNECT_ALERT || 'true') !== 'false',
   // Picture shown with the .menu command (set MENU_IMAGE to use another one)
   menuImage: process.env.MENU_IMAGE || 'https://u.pone.rs/vluuzjpq.jpeg',
+  // Time zone used for the connect alert, and the repo link shown in it
+  timezone: process.env.TIMEZONE || 'Africa/Nairobi',
+  repo: process.env.REPO_URL || 'https://github.com/adeztech2/nexus',
   autoRead: String(process.env.AUTO_READ || 'false') === 'true',
 };
