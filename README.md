@@ -22,6 +22,12 @@ WhatsApp chat ("Message yourself") and prints a note in the logs. You can also g
 To deploy without re-linking, set it as the `SESSION_ID` environment variable on your host
 (Render, Heroku, etc.). Treat it like a password: anyone with it controls your WhatsApp account.
 
+## Pair page
+
+Once Nexus is running, open `https://<your-host>/pair` (or `http://localhost:3000/pair`).
+Enter your number, get a pairing code, enter it in WhatsApp > Linked devices, and your
+session ID is sent to your own chat. The page lives in `public/pair.html`.
+
 ## Commands (default prefix `.`)
 
 | Category | Commands |
