@@ -41,6 +41,10 @@
       <a href="https://render.com/deploy?repo=https://github.com/adeztech2/nexus">
         <img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render">
       </a>
+      <br><br>
+      <a href="https://heroku.com/deploy?template=https://github.com/adeztech2/nexus">
+        <img src="https://www.herokucdn.com/deploy/button.svg" alt="Deploy to Heroku">
+      </a>
     </td>
   </tr>
   <tr>
