@@ -1,4 +1,5 @@
 const { createSessionId } = require('../lib/session');
+const { kv, numbered } = require('../lib/table');
 
 // Work out who a command is aimed at: @mention, replied-to message,
 // a number typed as the first argument, or the chat itself when private.
@@ -134,7 +135,7 @@ module.exports = [
     description: 'List the current owner numbers',
     ownerOnly: true,
     run: async ({ reply, settings }) =>
-      reply(settings.owners.length ? settings.owners.map((n, i) => `${i + 1}. wa.me/${n}`).join('\n') : 'No owners set.'),
+      reply(settings.owners.length ? numbered('OWNERS', settings.owners.map((n) => 'wa.me/' + n)) : 'No owners set.'),
   },
   {
     name: 'addowner',
@@ -200,7 +201,7 @@ module.exports = [
       try {
         const list = await sock.fetchBlocklist();
         await reply(
-          list.length ? `Blocked users (${list.length}):\n${list.map((j) => '• ' + j.split('@')[0]).join('\n')}` : 'Nobody is blocked.'
+          list.length ? numbered('BLOCKED', list.map((j) => j.split('@')[0])) : 'Nobody is blocked.'
         );
       } catch {
         await reply('Could not fetch the block list.');
@@ -256,8 +257,7 @@ module.exports = [
     run: async ({ sock, reply }) => {
       const all = Object.values(await sock.groupFetchAllParticipating());
       if (!all.length) return reply('The bot is not in any groups.');
-      const lines = all.map((g, i) => `${i + 1}. ${g.subject} (${g.participants.length})`);
-      await reply(`Groups (${all.length}):\n${lines.join('\n')}`);
+      await reply(numbered(`GROUPS (${all.length})`, all.map((g) => `${g.subject} (${g.participants.length})`)));
     },
   },
   {
@@ -378,14 +378,15 @@ module.exports = [
     ownerOnly: true,
     run: async ({ reply, settings, commands }) =>
       reply(
-        [
-          `Bot name: ${settings.botName}`,
-          `Prefix: ${settings.prefix ?? '(default)'}`,
-          `Mode: ${settings.mode}`,
-          `Owners: ${settings.owners.length}`,
-          `Menu image: ${settings.menuImage ? 'set' : 'none'}`,
-          `Commands loaded: ${commands.size}`,
-        ].join('\n')
+        kv('SETTINGS', [
+          ['Bot name', settings.botName],
+          ['Prefix', settings.prefix ?? '(default)'],
+          ['Mode', settings.mode],
+          ['Forwarding', settings.forwarded ? 'on' : 'off'],
+          ['Owners', settings.owners.length],
+          ['Menu image', settings.menuImage ? 'set' : 'none'],
+          ['Commands loaded', commands.size],
+        ])
       ),
   },
   {
@@ -397,13 +398,13 @@ module.exports = [
       const m = process.memoryUsage();
       const mb = (n) => (n / 1024 / 1024).toFixed(1);
       await reply(
-        [
-          `RAM (rss): ${mb(m.rss)} MB`,
-          `Heap used: ${mb(m.heapUsed)} / ${mb(m.heapTotal)} MB`,
-          `Node: ${process.version}`,
-          `Platform: ${process.platform}`,
-          `PID: ${process.pid}`,
-        ].join('\n')
+        kv('SYSTEM', [
+          ['RAM (rss)', `${mb(m.rss)} MB`],
+          ['Heap used', `${mb(m.heapUsed)} / ${mb(m.heapTotal)} MB`],
+          ['Node', process.version],
+          ['Platform', process.platform],
+          ['PID', process.pid],
+        ])
       );
     },
   },
@@ -418,4 +419,4 @@ module.exports = [
     },
   },
 ];
-      
+        
