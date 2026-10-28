@@ -21,17 +21,38 @@ function loadCommands() {
     }
   }
   log.info(`Loaded ${unique.size} commands`);
+  log.info(`Prefix "${settings.prefix}" | mode ${settings.mode} | owners ${settings.owners.length}`);
 }
 
 const sameUser = (p, jid, extra = []) =>
   [p.id, p.lid, p.phoneNumber, p.jid].filter(Boolean).some((x) => [jid, ...extra].includes(x));
+
+// Messages in disappearing chats, view-once, or sent from a linked device are
+// wrapped. Unwrap them so the real text can be read.
+const WRAPPERS = [
+  'ephemeralMessage',
+  'viewOnceMessage',
+  'viewOnceMessageV2',
+  'viewOnceMessageV2Extension',
+  'documentWithCaptionMessage',
+  'deviceSentMessage',
+];
+const unwrap = (m) => {
+  let cur = m;
+  for (let i = 0; i < 5 && cur; i++) {
+    const key = WRAPPERS.find((k) => cur[k]?.message);
+    if (!key) break;
+    cur = cur[key].message;
+  }
+  return cur;
+};
 
 async function handle(sock, msg) {
   if (!msg.message) return;
   const from = msg.key.remoteJid;
   if (!from || from === 'status@broadcast') return;
 
-  const text = getText(msg.message).trim();
+  const text = (getText(unwrap(msg.message)) || '').trim();
   if (!text.startsWith(settings.prefix)) return;
 
   const [rawName, ...args] = text.slice(settings.prefix.length).split(/\s+/);
@@ -40,14 +61,30 @@ async function handle(sock, msg) {
 
   const isGroup = from.endsWith('@g.us');
   const sender = isGroup ? msg.key.participant : from;
-  const isOwner = msg.key.fromMe || settings.owners.includes(toNumber(sender));
+  // WhatsApp may identify people by a hidden LID; the real number can be in the "Alt" fields.
+  const senderIds = [sender, isGroup ? msg.key.participantAlt : msg.key.remoteJidAlt].filter(Boolean);
+  const isOwner = msg.key.fromMe || senderIds.some((j) => settings.owners.includes(toNumber(j)));
 
   if (settings.mode === 'private' && !isOwner) {
-    return log.info(`[CMD] ignored "${cmd.name}": mode is private and sender is not the owner`);
+    return log.info(`[CMD] ignored "${cmd.name}": mode is private and sender is not the owner (sender=${sender})`);
   }
   log.info(`[CMD] running "${cmd.name}" (owner=${isOwner}, group=${isGroup})`);
 
-  const reply = (t) => sock.sendMessage(from, { text: t }, { quoted: msg });
+  // Reply, and if sending fails, say why in the log (and retry once without quoting).
+  const reply = async (t) => {
+    try {
+      return await sock.sendMessage(from, { text: t }, { quoted: msg });
+    } catch (e1) {
+      log.error(`Reply failed (with quote) to ${from}:`, e1);
+      try {
+        return await sock.sendMessage(from, { text: t });
+      } catch (e2) {
+        log.error(`Reply failed (plain) to ${from}:`, e2);
+        throw e2;
+      }
+    }
+  };
+
   const ctx = {
     sock, msg, from, sender, isGroup, isOwner, args,
     text: args.join(' '), command: rawName.toLowerCase(), reply,
@@ -77,3 +114,4 @@ async function handle(sock, msg) {
 }
 
 module.exports = { loadCommands, handle };
+    
