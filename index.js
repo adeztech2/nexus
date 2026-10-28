@@ -146,6 +146,13 @@ async function start() {
     },
     browser: Browsers.ubuntu('Chrome'),
     markOnlineOnConnect: false,
+    // Faster start and less work: don't download old chat history, don't build link previews.
+    syncFullHistory: false,
+    shouldSyncHistoryMessage: () => false,
+    generateHighQualityLinkPreview: false,
+    // Keep the connection alive so WhatsApp doesn't drop it quietly.
+    keepAliveIntervalMs: 25000,
+    connectTimeoutMs: 60000,
   });
 
   // Pairing-code login (no QR) when PAIRING_NUMBER is set and the device is not yet registered.
@@ -200,9 +207,22 @@ async function start() {
           `text="${getText(msg.message).slice(0, 40)}"`
       );
       if (settings.autoRead && !msg.key.fromMe) sock.readMessages([msg.key]).catch(() => {});
-      await handle(sock, msg);
+      // Not awaited: each message is handled on its own, so one slow command
+      // (a download, an AI answer) never makes the other messages wait.
+      handle(sock, msg).catch((e) => log.error('Handler error:', e));
     }
   });
+}
+
+// Render's free plan puts a service to sleep after ~15 minutes without web traffic, and a
+// sleeping bot answers slowly or not at all. Pinging our own public address every 10 minutes
+// keeps it awake. Render sets RENDER_EXTERNAL_URL automatically; you can also set KEEP_ALIVE_URL.
+const keepAliveUrl = process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL;
+if (keepAliveUrl) {
+  setInterval(() => {
+    fetch(keepAliveUrl, { signal: AbortSignal.timeout(15000) }).catch(() => {});
+  }, 10 * 60 * 1000);
+  log.info(`Keep-alive ping enabled for ${keepAliveUrl}`);
 }
 
 process.on('unhandledRejection', (e) => log.error('Unhandled rejection:', e));
