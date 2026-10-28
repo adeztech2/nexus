@@ -13,7 +13,7 @@ module.exports = [
     name: 'menu',
     aliases: ['help', 'commands'],
     description: 'Show all commands',
-    run: async ({ sock, msg, from, reply, commands, prefix, settings }) => {
+    run: async ({ sock, msg, from, reply, commands, prefix, settings, fwd }) => {
       const groups = {};
       for (const c of commands) (groups[c.category] ||= []).push(c);
       const cats = Object.keys(groups).sort((a, b) => {
@@ -39,7 +39,8 @@ module.exports = [
       try {
         if (image) {
           // One message: the picture with the whole menu as its caption.
-          await sock.sendMessage(from, { image: { url: image }, caption: full }, { quoted: msg });
+          const f = fwd ? await fwd() : {};
+          await sock.sendMessage(from, { image: { url: image }, caption: full, ...f }, { quoted: msg });
         } else {
           await reply(full);
         }
@@ -82,6 +83,12 @@ module.exports = [
   },
 
   // ---- New general commands ----
+  {
+    name: 'channel',
+    aliases: ['support'],
+    description: 'Get the bot channel link',
+    run: async ({ reply, channelLink }) => reply(`Follow our channel:\n${channelLink}`),
+  },
   {
     name: 'uptime',
     aliases: ['runtime'],
@@ -163,3 +170,4 @@ module.exports = [
     },
   },
 ];
+      
