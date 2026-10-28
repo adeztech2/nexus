@@ -18,5 +18,7 @@ module.exports = {
   port: Number(process.env.PORT) || 3000,
   // WhatsApp message to you whenever the bot connects (set CONNECT_ALERT=false to turn off)
   connectAlert: String(process.env.CONNECT_ALERT || 'true') !== 'false',
+  // Picture shown with the .menu command (set MENU_IMAGE to use another one)
+  menuImage: process.env.MENU_IMAGE || 'https://u.pone.rs/vluuzjpq.jpeg',
   autoRead: String(process.env.AUTO_READ || 'false') === 'true',
 };
