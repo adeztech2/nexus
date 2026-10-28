@@ -2,6 +2,7 @@ const { formatUptime } = require('../lib/utils');
 
 const CATEGORY_ORDER = ['general', 'fun', 'group', 'owner'];
 const FOOTER = '> POWERED BY ADEZ TECH';
+const TIMEZONE = 'Africa/Nairobi';
 
 // One boxed section: title, then one command per line going down.
 const box = (title, lines) =>
@@ -83,4 +84,92 @@ module.exports = [
     description: 'Repeat your text',
     run: async ({ reply, text, prefix }) => reply(text || `Usage: ${prefix}say <text>`),
   },
+
+  // ---- New general commands ----
+  {
+    name: 'uptime',
+    aliases: ['runtime'],
+    description: 'Show how long the bot has been running',
+    run: async ({ reply }) => reply(`Uptime: ${formatUptime(process.uptime())}`),
+  },
+  {
+    name: 'time',
+    description: 'Show the current time',
+    run: async ({ reply, settings }) => {
+      const tz = settings.timezone || TIMEZONE;
+      const now = new Date().toLocaleTimeString('en-GB', { timeZone: tz, hour12: false });
+      await reply(`Time: ${now} (${tz})`);
+    },
+  },
+  {
+    name: 'date',
+    aliases: ['today'],
+    description: 'Show today\'s date',
+    run: async ({ reply, settings }) => {
+      const tz = settings.timezone || TIMEZONE;
+      const d = new Date().toLocaleDateString('en-GB', {
+        timeZone: tz,
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      });
+      await reply(`Date: ${d}`);
+    },
+  },
+  {
+    name: 'botinfo',
+    aliases: ['info', 'about'],
+    description: 'Show information about the bot',
+    run: async ({ reply, commands, prefix, settings }) =>
+      reply(
+        box(settings.botName.toUpperCase(), [
+          `Prefix: ${prefix}`,
+          `Mode: ${settings.mode}`,
+          `Commands: ${commands.size}`,
+          `Uptime: ${formatUptime(process.uptime())}`,
+          `Node: ${process.version}`,
+          `Memory: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`,
+        ])
+      ),
+  },
+  {
+    name: 'prefix',
+    description: 'Show the current command prefix',
+    run: async ({ reply, prefix }) => reply(`Current prefix: [ ${prefix} ]`),
+  },
+  {
+    name: 'mode',
+    description: 'Show whether the bot is in public or private mode',
+    run: async ({ reply, settings }) => reply(`Bot mode: ${settings.mode}`),
+  },
+  {
+    name: 'jid',
+    aliases: ['chatid'],
+    description: 'Show the ID of this chat',
+    run: async ({ reply, from }) => reply(`Chat ID: ${from}`),
+  },
+  {
+    name: 'calc',
+    aliases: ['calculate'],
+    description: 'Do a quick calculation',
+    run: async ({ reply, text, prefix }) => {
+      const expr = (text || '').trim();
+      if (!expr) return reply(`Usage: ${prefix}calc 12*(3+4)`);
+      // Allow only digits, spaces and basic math characters.
+      if (expr.length > 100 || !/^[\d\s+\-*/%().^]+$/.test(expr)) {
+        return reply('Only numbers and + - * / % ^ ( ) are allowed.');
+      }
+      try {
+        const result = Function(`"use strict"; return (${expr.replace(/\^/g, '**')});`)();
+        if (typeof result !== 'number' || !Number.isFinite(result)) {
+          return reply('That does not give a valid number.');
+        }
+        await reply(`${expr} = ${result}`);
+      } catch {
+        await reply('Invalid expression.');
+      }
+    },
+  },
 ];
+    
