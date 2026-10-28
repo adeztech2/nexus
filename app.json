@@ -3,8 +3,7 @@
   "description": "Nexus WhatsApp bot",
   "repository": "https://github.com/adeztech2/nexus",
   "keywords": ["whatsapp", "bot", "nodejs"],
-  "stack": "heroku-22",
-  "buildpacks": [{ "url": "heroku/nodejs" }],
+  "stack": "container",
   "env": {
     "SESSION_ID": {
       "description": "Session ID from the pair site (starts with NEXUS~)",
