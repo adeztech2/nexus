@@ -16,5 +16,7 @@ module.exports = {
   sessionId: (process.env.SESSION_ID || '').trim(),
   sessionDir: process.env.SESSION_DIR || path.join(__dirname, 'session'),
   port: Number(process.env.PORT) || 3000,
+  // WhatsApp message to you whenever the bot connects (set CONNECT_ALERT=false to turn off)
+  connectAlert: String(process.env.CONNECT_ALERT || 'true') !== 'false',
   autoRead: String(process.env.AUTO_READ || 'false') === 'true',
 };
