@@ -1,12 +1,10 @@
 const { formatUptime } = require('../lib/utils');
+const { box, kv } = require('../lib/table');
 
 const CATEGORY_ORDER = ['general', 'fun', 'group', 'owner'];
 const FOOTER = '> POWERED BY ADEZ TECH';
 const TIMEZONE = 'Africa/Nairobi';
 
-// One boxed section: title, then one command per line going down.
-const box = (title, lines) =>
-  [`┏━━━✧ ${title} ✧━━━━`, ...lines.map((l) => `┃✧ ${l}`), '┗━━━━━━━━━━━━━━━'].join('\n');
 
 module.exports = [
   {
@@ -126,13 +124,13 @@ module.exports = [
     description: 'Show information about the bot',
     run: async ({ reply, commands, prefix, settings }) =>
       reply(
-        box(settings.botName.toUpperCase(), [
-          `Prefix: ${prefix}`,
-          `Mode: ${settings.mode}`,
-          `Commands: ${commands.size}`,
-          `Uptime: ${formatUptime(process.uptime())}`,
-          `Node: ${process.version}`,
-          `Memory: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`,
+        kv(settings.botName.toUpperCase(), [
+          ['Prefix', prefix],
+          ['Mode', settings.mode],
+          ['Commands', commands.size],
+          ['Uptime', formatUptime(process.uptime())],
+          ['Node', process.version],
+          ['Memory', `${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`],
         ])
       ),
   },
@@ -170,4 +168,4 @@ module.exports = [
     },
   },
 ];
-      
+    
