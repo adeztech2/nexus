@@ -13,6 +13,7 @@
       "description": "Your number, digits only with country code",
       "required": true
     },
+    "SESSION_DIR": { "value": "/tmp/session" },
     "BOT_NAME": { "value": "Nexus" },
     "PREFIX": { "value": "." },
     "MODE": { "value": "public" }
