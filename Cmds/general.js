@@ -9,9 +9,9 @@ const TIMEZONE = 'Africa/Nairobi';
 module.exports = [
   {
     name: 'menu',
-    aliases: ['help', 'commands'],
-    description: 'Show all commands',
-    run: async ({ sock, msg, from, reply, commands, prefix, settings, fwd }) => {
+    aliases: ['help', 'commands', 'fullmenu'],
+    description: 'Show the menu: menu, menu <category>, or menu all',
+    run: async ({ sock, msg, from, sender, reply, commands, prefix, settings, fwd, channelLink, command, args }) => {
       const groups = {};
       for (const c of commands) (groups[c.category] ||= []).push(c);
       const cats = Object.keys(groups).sort((a, b) => {
@@ -19,31 +19,55 @@ module.exports = [
         const ib = CATEGORY_ORDER.indexOf(b);
         return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
       });
+      const listOf = (cat) => box(cat.toUpperCase(), groups[cat].map((c) => prefix + c.name));
 
+      // ".menu all" (or ".fullmenu"): every command at once, as plain text.
+      const want = (args[0] || '').toLowerCase();
+      if (command === 'fullmenu' || want === 'all') {
+        return reply(cats.map(listOf).join('\n\n'));
+      }
+
+      // ".menu <category>": only that category's commands.
+      if (want) {
+        const cat = cats.find((c) => c === want);
+        if (!cat) return reply(`No category called "${want}".\nTry ${prefix}menu to see them all.`);
+        return reply(listOf(cat));
+      }
+
+      // ".menu": a short home page with a clickable picture card on top.
+      const number = String(sender || '').split('@')[0].split(':')[0];
       const header = box(settings.botName.toUpperCase(), [
         `Prefix: [ ${prefix} ]`,
         `Mode: ${settings.mode}`,
         `Uptime: ${formatUptime(process.uptime())}`,
-        `Commands: ${commands.size}`,
+        `Total commands: ${commands.size}`,
       ]);
+      const list = cats.map((c) => `${prefix}menu ${c}  (${groups[c].length})`);
+      const text =
+        `Hey, @${number} 👋\n\n${header}\n\n` +
+        `${box('CATEGORIES', list)}\n\n` +
+        `Type a category name after ${prefix}menu to see its commands.\n` +
+        `Everything at once: ${prefix}menu all\n\n${FOOTER}`;
 
-      const body = cats
-        .map((cat) => box(cat.toUpperCase(), groups[cat].map((c) => prefix + c.name)))
-        .join('\n\n');
-
-      const full = `${header}\n\n${body}\n\n${FOOTER}`;
-      const image = settings.menuImage;
+      const f = fwd ? await fwd() : {};
+      const card = {
+        title: settings.botName,
+        body: 'Tap to follow our channel',
+        mediaType: 1,
+        renderLargerThumbnail: true,
+        showAdAttribution: false, // keeps WhatsApp from labelling it as an ad
+        sourceUrl: channelLink,
+      };
+      if (settings.menuImage) card.thumbnailUrl = settings.menuImage;
 
       try {
-        if (image) {
-          // One message: the picture with the whole menu as its caption.
-          const f = fwd ? await fwd() : {};
-          await sock.sendMessage(from, { image: { url: image }, caption: full, ...f }, { quoted: msg });
-        } else {
-          await reply(full);
-        }
+        await sock.sendMessage(
+          from,
+          { text, mentions: sender ? [sender] : [], contextInfo: { ...(f.contextInfo || {}), externalAdReply: card } },
+          { quoted: msg }
+        );
       } catch {
-        await reply(full); // picture failed to load: still send the menu as text
+        await reply(text); // card failed: still send the menu as plain text
       }
     },
   },
@@ -168,4 +192,3 @@ module.exports = [
     },
   },
 ];
-    
