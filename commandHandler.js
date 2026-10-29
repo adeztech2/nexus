@@ -9,8 +9,8 @@ const store = require('./lib/store');
 const toNumber = (j) => String(j || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 
 // Added to the end of every text reply (skipped if the text already has it, like the menu).
-const FOOTER = '> POWERED BY ADEZ TECH';
-const withFooter = (t) => (String(t).includes('POWERED BY ADEZ TECH') ? String(t) : `${t}\n\n${FOOTER}`);
+const { FOOTER, hasFooter } = require('./lib/brand');
+const withFooter = (t) => (hasFooter(t) ? String(t) : `${t}\n\n${FOOTER}`);
 
 // Make every reply bold. WhatsApp bold needs the stars on each line, so wrap line by line.
 // Text that is already formatted by a command (like the menu box) is left alone.
