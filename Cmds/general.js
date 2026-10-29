@@ -2,7 +2,7 @@ const { formatUptime } = require('../lib/utils');
 const { box, kv } = require('../lib/table');
 
 const CATEGORY_ORDER = ['general', 'fun', 'group', 'owner'];
-const FOOTER = '> POWERED BY ADEZ TECH';
+const { FOOTER } = require('../lib/brand');
 const TIMEZONE = 'Africa/Nairobi';
 
 
@@ -192,3 +192,4 @@ module.exports = [
     },
   },
 ];
+                            
