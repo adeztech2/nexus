@@ -16,6 +16,7 @@ const { log, baileysLogger } = require('./logger');
 const { loadCommands, handle } = require('./commandHandler');
 const { createSessionId, restoreSession } = require('./lib/session');
 const { getText } = require('./lib/utils');
+const { FOOTER } = require('./lib/brand');
 
 loadCommands();
 
@@ -125,7 +126,7 @@ async function notifyConnected(sock) {
       `${restoredFromEnv ? 'Session restored' : 'Session linked'} — bot is online ✅\n\n` +
       `First replies may be slow for 2–3 minutes\n` +
       `while keys rebuild. Then: instant ⚡\n\n` +
-      `> POWERED BY ADEZ TECH`;
+      FOOTER;
     for (const jid of targets) await sock.sendMessage(jid, { text });
   } catch (e) {
     log.error('Could not send connect alert:', e.message);
