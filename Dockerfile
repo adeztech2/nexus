@@ -8,5 +8,8 @@ COPY package.json ./
 RUN npm install --omit=dev
 COPY . .
 
+RUN mkdir -p /app/session && chmod -R 777 /app/session
+
+ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["node", "--max-old-space-size=400", "index.js"]
