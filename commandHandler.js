@@ -9,8 +9,8 @@ const store = require('./lib/store');
 const toNumber = (j) => String(j || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 
 // Added to the end of every text reply (skipped if the text already has it, like the menu).
-const FOOTER = '> POWERED BY ADEZ TECH';
-const withFooter = (t) => (String(t).includes('POWERED BY ADEZ TECH') ? String(t) : `${t}\n\n${FOOTER}`);
+const { FOOTER, hasFooter } = require('./lib/brand');
+const withFooter = (t) => (hasFooter(t) ? String(t) : `${t}\n\n${FOOTER}`);
 
 // Make every reply bold. WhatsApp bold needs the stars on each line, so wrap line by line.
 // Text that is already formatted by a command (like the menu box) is left alone.
@@ -39,19 +39,34 @@ const FORWARD_NAME = 'ADEZ TECH';
 // so every reply doesn't pay for a failed request.
 let channelInfo = null;
 let channelFailed = { code: null, at: 0 };
+let channelPending = null; // one lookup at a time, shared by every reply waiting on it
 async function getChannel(sock) {
   const code = channelCode();
   if (channelInfo && channelInfo.code === code) return channelInfo;
   if (channelFailed.code === code && Date.now() - channelFailed.at < 60000) return null;
-  try {
-    const m = await sock.newsletterMetadata('invite', code);
-    channelInfo = { code, jid: m.id, name: m.name || '' };
-  } catch (e) {
-    channelFailed = { code, at: Date.now() };
-    log.error('Could not load the channel info:', e);
+  if (!channelPending) {
+    channelPending = (async () => {
+      try {
+        // Never let this lookup hold up replies for more than a few seconds.
+        const m = await Promise.race([
+          sock.newsletterMetadata('invite', code),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), 4000)),
+        ]);
+        channelInfo = { code, jid: m.id, name: m.name || '' };
+      } catch (e) {
+        channelFailed = { code, at: Date.now() };
+        log.error('Could not load the channel info:', e.message);
+      } finally {
+        channelPending = null;
+      }
+      return channelInfo && channelInfo.code === code ? channelInfo : null;
+    })();
   }
-  return channelInfo;
+  return channelPending;
 }
+
+// Look the channel up ahead of time (called when the bot connects), so the first reply is not slow.
+const warm = (sock) => (settings.forwarded ? getChannel(sock).catch(() => {}) : undefined);
 
 // When forwarding is on, replies show "Forwarded many times", and look like they
 // came from your channel (shown as ADEZ TECH) if the channel could be loaded.
@@ -85,9 +100,18 @@ const unique = new Set(); // each command once, for the menu
 function loadCommands() {
   commands.clear();
   unique.clear();
+  const failed = [];
   const dir = path.join(__dirname, 'Cmds');
   for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js'))) {
-    const mod = require(path.join(dir, file));
+    // One broken command file must not stop the whole bot from starting.
+    let mod;
+    try {
+      mod = require(path.join(dir, file));
+    } catch (e) {
+      failed.push(file);
+      log.error(`Could not load Cmds/${file}: ${e.message}`);
+      continue;
+    }
     for (const cmd of Array.isArray(mod) ? mod : [mod]) {
       if (!cmd?.name || typeof cmd.run !== 'function') continue;
       cmd.category = cmd.category || file.replace('.js', '');
@@ -95,36 +119,8 @@ function loadCommands() {
       for (const n of [cmd.name, ...(cmd.aliases || [])]) commands.set(n.toLowerCase(), cmd);
     }
   }
-  // Commands written in the nexus({...}, fn) style (lib/nexus.js)
-  const { commands: nexusCmds } = require('./lib/nexus');
-  for (const k of nexusCmds) {
-    const name = String(k.pattern || k.nomCom || '').toLowerCase();
-    if (!name || typeof k.function !== 'function') continue;
-    const cmd = {
-      name,
-      aliases: k.alias || k.aliases || [],
-      category: String(k.category || 'general').toLowerCase(),
-      description: k.desc || '',
-      run: async (ctx) => {
-        if (k.react) {
-          ctx.sock.sendMessage(ctx.from, { react: { text: k.react, key: ctx.msg.key } }).catch(() => {});
-        }
-        const conText = {
-          ...ctx,
-          client: ctx.sock,
-          m: ctx.msg,
-          mek: ctx.msg,
-          q: ctx.text,
-          isSuperUser: ctx.isOwner,
-        };
-        await k.function(ctx.from, ctx.sock, conText);
-      },
-    };
-    if (!k.dontAddCommandList) unique.add(cmd);
-    for (const n of [cmd.name, ...cmd.aliases]) commands.set(String(n).toLowerCase(), cmd);
-  }
   store.load(settings); // settings changed by owner commands (prefix, bot name, ...)
-  log.info(`Loaded ${unique.size} commands`);
+  log.info(`Loaded ${unique.size} commands${failed.length ? ` (FAILED to load: ${failed.join(', ')})` : ''}`);
   log.info(`Prefix "${settings.prefix}" | mode ${settings.mode} | owners ${settings.owners.length}`);
 }
 
@@ -259,4 +255,5 @@ async function handle(sock, msg) {
   }
 }
 
-module.exports = { loadCommands, handle };
+module.exports = { loadCommands, handle, warm, commandCount: () => unique.size };
+      
