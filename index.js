@@ -16,7 +16,9 @@ const { log, baileysLogger } = require('./logger');
 const { loadCommands, handle } = require('./commandHandler');
 const { createSessionId, restoreSession } = require('./lib/session');
 const { getText } = require('./lib/utils');
-const { FOOTER } = require('./lib/brand');
+const { useMongoAuthState } = require('./lib/mongoAuth');
+
+let authClear = null; // clears the saved MongoDB session when the device is logged out
 
 loadCommands();
 
@@ -126,7 +128,7 @@ async function notifyConnected(sock) {
       `${restoredFromEnv ? 'Session restored' : 'Session linked'} — bot is online ✅\n\n` +
       `First replies may be slow for 2–3 minutes\n` +
       `while keys rebuild. Then: instant ⚡\n\n` +
-      FOOTER;
+      `> POWERED BY ADEZ TECH`;
     for (const jid of targets) await sock.sendMessage(jid, { text });
   } catch (e) {
     log.error('Could not send connect alert:', e.message);
@@ -135,7 +137,17 @@ async function notifyConnected(sock) {
 
 async function start() {
   fs.mkdirSync(settings.sessionDir, { recursive: true });
-  const { state, saveCreds } = await useMultiFileAuthState(settings.sessionDir);
+  let state, saveCreds;
+  if (process.env.MONGODB_URI) {
+    // Whole session (login + keys) lives in MongoDB, so restarts never lose it.
+    const auth = await useMongoAuthState(process.env.MONGODB_URI, {
+      seedFile: path.join(settings.sessionDir, 'creds.json'),
+    });
+    ({ state, saveCreds } = auth);
+    authClear = auth.clear;
+  } else {
+    ({ state, saveCreds } = await useMultiFileAuthState(settings.sessionDir));
+  }
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
@@ -147,13 +159,6 @@ async function start() {
     },
     browser: Browsers.ubuntu('Chrome'),
     markOnlineOnConnect: false,
-    // Faster start and less work: don't download old chat history, don't build link previews.
-    syncFullHistory: false,
-    shouldSyncHistoryMessage: () => false,
-    generateHighQualityLinkPreview: false,
-    // Keep the connection alive so WhatsApp doesn't drop it quietly.
-    keepAliveIntervalMs: 25000,
-    connectTimeoutMs: 60000,
   });
 
   // Pairing-code login (no QR) when PAIRING_NUMBER is set and the device is not yet registered.
@@ -184,8 +189,9 @@ async function start() {
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode;
       if (code === DisconnectReason.loggedOut) {
-        log.error('Logged out. Delete the session folder and link the bot again.');
-        process.exit(1);
+        log.error('Logged out. Clearing saved session. Link the bot again.');
+        Promise.resolve(authClear && authClear()).finally(() => process.exit(1));
+        return;
       }
       // 440: the same session was opened somewhere else (for example an overlapping deploy).
       // Stop this copy instead of fighting the other one.
@@ -208,22 +214,16 @@ async function start() {
           `text="${getText(msg.message).slice(0, 40)}"`
       );
       if (settings.autoRead && !msg.key.fromMe) sock.readMessages([msg.key]).catch(() => {});
-      // Not awaited: each message is handled on its own, so one slow command
-      // (a download, an AI answer) never makes the other messages wait.
-      handle(sock, msg).catch((e) => log.error('Handler error:', e));
+      await handle(sock, msg);
     }
   });
 }
 
-// Render's free plan puts a service to sleep after ~15 minutes without web traffic, and a
-// sleeping bot answers slowly or not at all. Pinging our own public address every 10 minutes
-// keeps it awake. Render sets RENDER_EXTERNAL_URL automatically; you can also set KEEP_ALIVE_URL.
-const keepAliveUrl = process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL;
-if (keepAliveUrl) {
-  setInterval(() => {
-    fetch(keepAliveUrl, { signal: AbortSignal.timeout(15000) }).catch(() => {});
-  }, 10 * 60 * 1000);
-  log.info(`Keep-alive ping enabled for ${keepAliveUrl}`);
+// Keep-alive: ping our own public URL so free hosts (Render) don't put the service to sleep.
+const KEEPALIVE_URL = process.env.KEEPALIVE_URL || process.env.RENDER_EXTERNAL_URL;
+if (KEEPALIVE_URL) {
+  log.info(`Keep-alive ping enabled for ${KEEPALIVE_URL}`);
+  setInterval(() => fetch(KEEPALIVE_URL).catch(() => {}), 4 * 60 * 1000);
 }
 
 process.on('unhandledRejection', (e) => log.error('Unhandled rejection:', e));
