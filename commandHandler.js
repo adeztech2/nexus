@@ -9,8 +9,8 @@ const store = require('./lib/store');
 const toNumber = (j) => String(j || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 
 // Added to the end of every text reply (skipped if the text already has it, like the menu).
-const { FOOTER, hasFooter } = require('./lib/brand');
-const withFooter = (t) => (hasFooter(t) ? String(t) : `${t}\n\n${FOOTER}`);
+const FOOTER = '> POWERED BY ADEZ TECH';
+const withFooter = (t) => (String(t).includes('POWERED BY ADEZ TECH') ? String(t) : `${t}\n\n${FOOTER}`);
 
 // Make every reply bold. WhatsApp bold needs the stars on each line, so wrap line by line.
 // Text that is already formatted by a command (like the menu box) is left alone.
@@ -94,6 +94,34 @@ function loadCommands() {
       unique.add(cmd);
       for (const n of [cmd.name, ...(cmd.aliases || [])]) commands.set(n.toLowerCase(), cmd);
     }
+  }
+  // Commands written in the nexus({...}, fn) style (lib/nexus.js)
+  const { commands: nexusCmds } = require('./lib/nexus');
+  for (const k of nexusCmds) {
+    const name = String(k.pattern || k.nomCom || '').toLowerCase();
+    if (!name || typeof k.function !== 'function') continue;
+    const cmd = {
+      name,
+      aliases: k.alias || k.aliases || [],
+      category: String(k.category || 'general').toLowerCase(),
+      description: k.desc || '',
+      run: async (ctx) => {
+        if (k.react) {
+          ctx.sock.sendMessage(ctx.from, { react: { text: k.react, key: ctx.msg.key } }).catch(() => {});
+        }
+        const conText = {
+          ...ctx,
+          client: ctx.sock,
+          m: ctx.msg,
+          mek: ctx.msg,
+          q: ctx.text,
+          isSuperUser: ctx.isOwner,
+        };
+        await k.function(ctx.from, ctx.sock, conText);
+      },
+    };
+    if (!k.dontAddCommandList) unique.add(cmd);
+    for (const n of [cmd.name, ...cmd.aliases]) commands.set(String(n).toLowerCase(), cmd);
   }
   store.load(settings); // settings changed by owner commands (prefix, bot name, ...)
   log.info(`Loaded ${unique.size} commands`);
@@ -232,4 +260,3 @@ async function handle(sock, msg) {
 }
 
 module.exports = { loadCommands, handle };
-      
