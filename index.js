@@ -13,12 +13,20 @@ const {
 
 const settings = require('./settings');
 const { log, baileysLogger } = require('./logger');
-const { loadCommands, handle } = require('./commandHandler');
+const { loadCommands, handle, warm, commandCount } = require('./commandHandler');
 const { createSessionId, restoreSession } = require('./lib/session');
 const { getText } = require('./lib/utils');
-const { useMongoAuthState } = require('./lib/mongoAuth');
+const { FOOTER } = require('./lib/brand');
+const { box } = require('./lib/table');
 
-let authClear = null; // clears the saved MongoDB session when the device is logged out
+// Group protection is optional: if its file is missing or broken, the bot still starts and replies.
+let guard;
+try {
+  guard = require('./lib/guard');
+} catch (e) {
+  log.error('Group protection is off (could not load lib/guard.js):', e.message);
+  guard = { onMessage: async () => {}, onParticipants: async () => {} };
+}
 
 loadCommands();
 
@@ -106,29 +114,40 @@ async function notifyConnected(sock) {
     const me = sock.user.id.replace(/:\d+@/, '@');
     const targets = new Set([me, ...settings.owners.map((n) => `${n}@s.whatsapp.net`)]);
     const platform = process.env.RENDER
-      ? '☁️ Render'
+      ? 'Render'
       : process.env.DYNO
-      ? '☁️ Heroku'
+      ? 'Heroku'
       : process.env.RAILWAY_ENVIRONMENT
-      ? '☁️ Railway'
-      : '🖥️ Server';
-    const time = new Date().toLocaleString('en-US', { timeZone: settings.timezone });
+      ? 'Railway'
+      : 'Server';
+    const time = new Date().toLocaleString('en-GB', {
+      timeZone: settings.timezone,
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const mode = settings.mode.charAt(0).toUpperCase() + settings.mode.slice(1);
+    const info = box(`${settings.botName.toUpperCase()} ONLINE`, [
+      '🟢 Status: Connected',
+      `🤖 Bot: ${settings.botName}`,
+      `⌨️ Prefix: [ ${settings.prefix} ]`,
+      `🌍 Mode: ${mode}`,
+      `👤 Owner: ${settings.owners[0] || me.split('@')[0]}`,
+      `⚙️ Commands: ${commandCount()}`,
+      `☁️ Host: ${platform}`,
+      `🔐 Session: ${restoredFromEnv ? 'Restored' : 'Linked'}`,
+      `🕒 Time: ${time}`,
+      `🔗 Repo: ${settings.repo}`,
+    ]);
     const text =
-      `┏━━━✧ CONNECTED ✧━━━━\n` +
-      `┃✧ Bot: ${settings.botName}\n` +
-      `┃✧ Prefix: [ ${settings.prefix} ]\n` +
-      `┃✧ Owner: ${settings.owners[0] || me.split('@')[0]}\n` +
-      `┃✧ Mode: ${settings.mode}\n` +
-      `┃✧ Platform: ${platform}\n` +
-      `┃✧ Status: online\n` +
-      `┃✧ Time: ${time}\n` +
-      `┃✧ Repo: ${settings.repo}\n` +
-      `┗━━━━━━━━━━━━━━━\n\n` +
-      `🔥 WARMING UP…\n\n` +
-      `${restoredFromEnv ? 'Session restored' : 'Session linked'} — bot is online ✅\n\n` +
-      `First replies may be slow for 2–3 minutes\n` +
-      `while keys rebuild. Then: instant ⚡\n\n` +
-      `> POWERED BY ADEZ TECH`;
+      `${info}\n\n` +
+      `⚡ *Warming up*\n` +
+      `Replies can take 2–3 minutes while keys rebuild, then they are instant.\n\n` +
+      `Type *${settings.prefix}menu* to get started.\n\n` +
+      FOOTER;
     for (const jid of targets) await sock.sendMessage(jid, { text });
   } catch (e) {
     log.error('Could not send connect alert:', e.message);
@@ -137,17 +156,7 @@ async function notifyConnected(sock) {
 
 async function start() {
   fs.mkdirSync(settings.sessionDir, { recursive: true });
-  let state, saveCreds;
-  if (process.env.MONGODB_URI) {
-    // Whole session (login + keys) lives in MongoDB, so restarts never lose it.
-    const auth = await useMongoAuthState(process.env.MONGODB_URI, {
-      seedFile: path.join(settings.sessionDir, 'creds.json'),
-    });
-    ({ state, saveCreds } = auth);
-    authClear = auth.clear;
-  } else {
-    ({ state, saveCreds } = await useMultiFileAuthState(settings.sessionDir));
-  }
+  const { state, saveCreds } = await useMultiFileAuthState(settings.sessionDir);
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
@@ -159,6 +168,13 @@ async function start() {
     },
     browser: Browsers.ubuntu('Chrome'),
     markOnlineOnConnect: false,
+    // Faster start and less work: don't download old chat history, don't build link previews.
+    syncFullHistory: false,
+    shouldSyncHistoryMessage: () => false,
+    generateHighQualityLinkPreview: false,
+    // Keep the connection alive so WhatsApp doesn't drop it quietly.
+    keepAliveIntervalMs: 25000,
+    connectTimeoutMs: 60000,
   });
 
   // Pairing-code login (no QR) when PAIRING_NUMBER is set and the device is not yet registered.
@@ -176,6 +192,11 @@ async function start() {
 
   sock.ev.on('creds.update', saveCreds);
 
+  // Group protection: welcome/goodbye messages, ban list, country filter.
+  sock.ev.on('group-participants.update', (update) => {
+    guard.onParticipants(sock, update).catch((e) => log.error('Guard (members) error:', e));
+  });
+
   sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
     if (qr && !settings.pairingNumber) {
       log.info('Scan this QR with WhatsApp > Linked devices:');
@@ -184,14 +205,14 @@ async function start() {
     if (connection === 'open') {
       log.info(`${settings.botName} connected as ${sock.user?.id}`);
       sendSessionId(sock);
+      warm(sock); // look up the forwarding channel now, so the first reply is not slow
       setTimeout(() => notifyConnected(sock), 3000);
     }
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode;
       if (code === DisconnectReason.loggedOut) {
-        log.error('Logged out. Clearing saved session. Link the bot again.');
-        Promise.resolve(authClear && authClear()).finally(() => process.exit(1));
-        return;
+        log.error('Logged out. Delete the session folder and link the bot again.');
+        process.exit(1);
       }
       // 440: the same session was opened somewhere else (for example an overlapping deploy).
       // Stop this copy instead of fighting the other one.
@@ -214,16 +235,23 @@ async function start() {
           `text="${getText(msg.message).slice(0, 40)}"`
       );
       if (settings.autoRead && !msg.key.fromMe) sock.readMessages([msg.key]).catch(() => {});
-      await handle(sock, msg);
+      // Not awaited: each message is handled on its own, so one slow command
+      // (a download, an AI answer) never makes the other messages wait.
+      guard.onMessage(sock, msg).catch((e) => log.error('Guard (message) error:', e));
+      handle(sock, msg).catch((e) => log.error('Handler error:', e));
     }
   });
 }
 
-// Keep-alive: ping our own public URL so free hosts (Render) don't put the service to sleep.
-const KEEPALIVE_URL = process.env.KEEPALIVE_URL || process.env.RENDER_EXTERNAL_URL;
-if (KEEPALIVE_URL) {
-  log.info(`Keep-alive ping enabled for ${KEEPALIVE_URL}`);
-  setInterval(() => fetch(KEEPALIVE_URL).catch(() => {}), 4 * 60 * 1000);
+// Render's free plan puts a service to sleep after ~15 minutes without web traffic, and a
+// sleeping bot answers slowly or not at all. Pinging our own public address every 10 minutes
+// keeps it awake. Render sets RENDER_EXTERNAL_URL automatically; you can also set KEEP_ALIVE_URL.
+const keepAliveUrl = process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL;
+if (keepAliveUrl) {
+  setInterval(() => {
+    fetch(keepAliveUrl, { signal: AbortSignal.timeout(15000) }).catch(() => {});
+  }, 10 * 60 * 1000);
+  log.info(`Keep-alive ping enabled for ${keepAliveUrl}`);
 }
 
 process.on('unhandledRejection', (e) => log.error('Unhandled rejection:', e));
