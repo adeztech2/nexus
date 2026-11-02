@@ -1,5 +1,5 @@
 build:
   docker:
-    worker: Dockerfile
+    web: Dockerfile
 run:
-  worker: node --max-old-space-size=400 index.js
+  web: node --max-old-space-size=400 index.js
