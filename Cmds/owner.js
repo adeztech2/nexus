@@ -153,18 +153,48 @@ module.exports = [
 
   {
     name: 'owner',
-    aliases: ['creator'],
-    description: 'Display the bot owner',
+    aliases: ['creator', 'dev', 'developer'],
+    description: 'Show the bot owner and send the contact card',
     ownerOnly: false,
 
-    run: async ({ reply }) => {
+    run: async ({ sock, from, msg, reply, settings }) => {
+      const { name, number } = settings.developer;
       await reply(
-        '╭━━━〔 NEXUS OWNER 〕━━━╮\n' +
-        '┃ 👨‍💻 Developer: Arnold Adez\n' +
-        '┃ 🇰🇪 Country: Kenya\n' +
-        '┃ 🤖 Bot: NEXUS\n' +
-        '╰━━━━━━━━━━━━━━━━━━━━╯'
+        '┌───✧ NEXUS OWNER ✧────\n' +
+          `│✧ 👨‍💻 Developer: ${name}\n` +
+          `│✧ 📞 Number: +${number}\n` +
+          `│✧ 💬 Chat: wa.me/${number}\n` +
+          '│✧ 🇰🇪 Country: Kenya\n' +
+          `│✧ 🤖 Bot: ${settings.botName}\n` +
+          '└──────────────'
       );
+      // Also send a contact card people can tap to save.
+      try {
+        const vcard =
+          'BEGIN:VCARD\nVERSION:3.0\n' +
+          `FN:${name}\nORG:ADEZ TECH;\n` +
+          `TEL;type=CELL;type=VOICE;waid=${number}:+${number}\n` +
+          'END:VCARD';
+        await sock.sendMessage(from, { contacts: { displayName: name, contacts: [{ vcard }] } }, { quoted: msg });
+      } catch (e) {
+        // the text above is enough
+      }
+    },
+  },
+
+  {
+    name: 'autoviewstatus',
+    aliases: ['autostatus', 'viewstatus', 'autoview'],
+    description: 'Turn automatic status viewing on or off: autoviewstatus on|off',
+    ownerOnly: true,
+
+    run: async ({ reply, args, settings, prefix }) => {
+      const v = (args[0] || '').toLowerCase();
+      if (!['on', 'off'].includes(v)) {
+        return reply(`Auto view status is ${settings.autoViewStatus ? 'ON' : 'OFF'}.\nUse: ${prefix}autoviewstatus on|off`);
+      }
+      settings.autoViewStatus = v === 'on';
+      await reply(`✅ Auto view status turned ${v.toUpperCase()}.`);
     },
   },
 
@@ -204,3 +234,4 @@ module.exports = [
     },
   },
 ];
+          
