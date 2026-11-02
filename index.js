@@ -155,9 +155,6 @@ async function notifyConnected(sock) {
     ]);
     const text =
       `${info}\n\n` +
-      (settings.mongoUri
-        ? ''
-        : `⚡ *Tip*\nSet MONGODB_URI so the bot keeps its keys between redeploys and answers instantly.\n\n`) +
       `Type *${settings.prefix}menu* to get started.\n\n` +
       FOOTER;
     for (const jid of targets) await sock.sendMessage(jid, { text });
@@ -183,7 +180,11 @@ async function start() {
   }
   if (!authStore) authStore = await useMultiFileAuthState(settings.sessionDir);
   const { state, saveCreds } = authStore;
-  const { version } = await fetchLatestBaileysVersion();
+  // Never wait long for the version lookup: if it is slow, start with the version built into Baileys.
+  const { version } = await Promise.race([
+    fetchLatestBaileysVersion(),
+    new Promise((resolve) => setTimeout(() => resolve({}), 3000)),
+  ]).catch(() => ({}));
 
   const sock = makeWASocket({
     version,
@@ -257,8 +258,10 @@ async function start() {
       // 440: the same session was opened somewhere else (for example an overlapping deploy).
       // Stop this copy instead of fighting the other one.
       if (code === DisconnectReason.connectionReplaced) {
-        log.error('Session opened somewhere else (440). Stopping this copy.');
-        process.exit(0);
+        // Another copy took over this login. Stay idle instead of exiting: on Render/Heroku an exit makes the
+        // host restart this copy, which then kicks the other one out again, and the two fight forever.
+        log.error('Session opened somewhere else (440). This copy is staying idle.');
+        return;
       }
       log.warn(`Connection closed (${code}). Reconnecting...`);
       setTimeout(start, 3000);
