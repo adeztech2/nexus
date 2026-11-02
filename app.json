@@ -1,24 +1,32 @@
 {
   "name": "Nexus",
-  "description": "Nexus WhatsApp bot",
+  "description": "Nexus WhatsApp bot by Arnold Adez (ADEZ TECH)",
   "repository": "https://github.com/adeztech2/nexus",
   "keywords": ["whatsapp", "bot", "nodejs"],
   "stack": "container",
   "env": {
     "SESSION_ID": {
-      "description": "Session ID from the pair site (starts with NEXUS~)",
+      "description": "Session ID from the /pair page (starts with NEXUS~)",
+      "required": true
+    },
+    "MONGODB_URI": {
+      "description": "MongoDB connection string (free Atlas works). REQUIRED on Heroku: the disk is wiped every restart, this keeps the login and keys.",
       "required": true
     },
     "OWNER_NUMBER": {
-      "description": "Your number, digits only with country code",
-      "required": true
+      "description": "Extra owner numbers (digits only). Arnold Adez 254111783552 is always the main owner.",
+      "value": "254111783552",
+      "required": false
     },
     "SESSION_DIR": { "value": "/tmp/session" },
     "BOT_NAME": { "value": "Nexus" },
     "PREFIX": { "value": "." },
-    "MODE": { "value": "public" }
+    "MODE": { "value": "public" },
+    "TIMEZONE": { "value": "Africa/Nairobi" },
+    "AUTO_VIEW_STATUS": { "value": "true" },
+    "CONNECT_ALERT": { "value": "true" }
   },
   "formation": {
-    "worker": { "quantity": 1, "size": "basic" }
+    "web": { "quantity": 1, "size": "basic" }
   }
 }
