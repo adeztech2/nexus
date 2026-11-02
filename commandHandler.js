@@ -73,7 +73,10 @@ const warm = (sock) => (settings.forwarded ? getChannel(sock).catch(() => {}) : 
 async function fwd(sock) {
   if (!settings.forwarded) return {};
   const contextInfo = { isForwarded: true, forwardingScore: 999 };
-  const c = await getChannel(sock);
+  // Never make a reply wait for the channel lookup: use it if it is ready, otherwise load it in the background.
+  const ready = channelInfo && channelInfo.code === channelCode() ? channelInfo : null;
+  if (!ready) getChannel(sock).catch(() => {});
+  const c = ready;
   if (c) {
     contextInfo.forwardedNewsletterMessageInfo = {
       newsletterJid: c.jid,
@@ -149,6 +152,7 @@ const unwrap = (m) => {
 
 // WhatsApp may identify people by a hidden LID instead of their phone number.
 // Collect every id we can for the sender, including the real number if we can resolve it.
+const lidCache = new Map(); // lid -> phone jid, so the lookup is only done once per person
 async function resolveSenderIds(sock, msg, isGroup) {
   const sender = isGroup ? msg.key.participant : msg.key.remoteJid;
   const alt = isGroup ? msg.key.participantAlt : msg.key.remoteJidAlt;
@@ -156,9 +160,17 @@ async function resolveSenderIds(sock, msg, isGroup) {
 
   for (const j of [...ids]) {
     if (!j.endsWith('@lid')) continue;
+    if (lidCache.has(j)) {
+      ids.push(lidCache.get(j));
+      continue;
+    }
     try {
       const pn = await sock.signalRepository?.lidMapping?.getPNForLID(j);
-      if (pn) ids.push(pn);
+      if (pn) {
+        if (lidCache.size > 2000) lidCache.delete(lidCache.keys().next().value);
+        lidCache.set(j, pn);
+        ids.push(pn);
+      }
     } catch {
       // older Baileys without lidMapping: ignore
     }
@@ -172,12 +184,6 @@ async function handle(sock, msg) {
   if (!from || from === 'status@broadcast') return;
 
   const text = (getText(unwrap(msg.message)) || '').trim();
-  // Temporary debug: show what kind of message had no readable text (remove once fixed).
-  if (!text && (msg.key.fromMe || !from.endsWith('@g.us'))) {
-    const quiet = ['protocolMessage', 'reactionMessage', 'senderKeyDistributionMessage', 'messageContextInfo'];
-    const keys = Object.keys(msg.message);
-    if (keys.some((k) => !quiet.includes(k))) log.info(`[DEBUG] no text in ${from}: keys=${keys.join(',')}`);
-  }
   if (!text.startsWith(settings.prefix)) return;
 
   const [rawName, ...args] = text.slice(settings.prefix.length).split(/\s+/);
@@ -186,7 +192,8 @@ async function handle(sock, msg) {
 
   const isGroup = from.endsWith('@g.us');
   const sender = isGroup ? msg.key.participant : from;
-  const senderIds = await resolveSenderIds(sock, msg, isGroup);
+  // Our own messages never need the lookup (fromMe is always the owner).
+  const senderIds = msg.key.fromMe ? [sender].filter(Boolean) : await resolveSenderIds(sock, msg, isGroup);
   const senderNumbers = senderIds.map(toNumber);
   // The number the bot is linked with (phone number and LID) always counts as an owner.
   const botNumbers = [sock.user?.id, sock.user?.lid].filter(Boolean).map(toNumber);
@@ -196,8 +203,6 @@ async function handle(sock, msg) {
     msg.key.fromMe ||
     senderNumbers.some((n) => settings.owners.includes(n) || botNumbers.includes(n));
 
-  // Shows what the bot sees, so a wrong OWNER_NUMBER is easy to spot. Remove once working.
-  log.info(`[OWNER] fromMe=${!!msg.key.fromMe} ids=${senderIds.join(',')} -> ${senderNumbers.join(',')} | owners=${settings.owners.join(',')} | bot=${botNumbers.join(',')} | isOwner=${isOwner}`);
 
   if (settings.mode === 'private' && !isOwner) {
     return log.info(`[CMD] ignored "${cmd.name}": mode is private and sender is not the owner (sender=${sender})`);
