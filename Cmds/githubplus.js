@@ -412,4 +412,12 @@ module.exports = [
   G('ghavatar', "Send a user's GitHub profile picture", async (ctx) => {
     const u = userArg(ctx);
     if (!u) return ctx.reply('Use: ghavatar <username>');
-    await api(`/u
+    const d = await api(`/users/${u}`);
+    if (!d.avatar_url) return ctx.reply('That user has no profile picture.');
+    await ctx.sock.sendMessage(
+      ctx.from,
+      { image: { url: `${d.avatar_url}&s=512` }, caption: `${d.login}\n${d.html_url}` },
+      { quoted: ctx.msg }
+    );
+  }, { aliases: ['ghpic'] }),
+];
