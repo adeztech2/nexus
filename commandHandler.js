@@ -66,7 +66,14 @@ async function getChannel(sock) {
 }
 
 // Look the channel up ahead of time (called when the bot connects), so the first reply is not slow.
-const warm = (sock) => (settings.forwarded ? getChannel(sock).catch(() => {}) : undefined);
+const warm = (sock) => {
+  if (settings.forwarded) getChannel(sock).catch(() => {});
+  try {
+    require('./Cmds/general').warmPicture?.(sock, settings);
+  } catch {
+    // the menu still works without it
+  }
+};
 
 // When forwarding is on, replies show "Forwarded many times", and look like they
 // came from your channel (shown as ADEZ TECH) if the channel could be loaded.
