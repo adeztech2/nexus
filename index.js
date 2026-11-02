@@ -31,6 +31,10 @@ try {
 loadCommands();
 
 let restoredFromEnv = false;
+// Recently sent messages, so WhatsApp can ask for a resend when a phone could not decrypt a reply
+// (the "Waiting for this message" problem).
+const sentCache = new Map();
+let mongoLogged = false;
 
 // Log in from SESSION_ID if provided (only when no local session exists yet).
 if (settings.sessionId && !fs.existsSync(path.join(settings.sessionDir, 'creds.json'))) {
@@ -62,8 +66,14 @@ http
     const url = new URL(req.url, 'http://localhost');
 
     if (url.pathname === '/pair' || url.pathname === '/pair.html') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(fs.readFileSync(path.join(__dirname, 'public', 'pair.html')));
+      try {
+        const page = fs.readFileSync(path.join(__dirname, 'public', 'pair.html'));
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(page);
+      } catch {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        return res.end('Pair page not found');
+      }
     }
 
     if (url.pathname === '/api/pair') {
@@ -112,7 +122,7 @@ async function notifyConnected(sock) {
   lastAlert = Date.now();
   try {
     const me = sock.user.id.replace(/:\d+@/, '@');
-    const targets = new Set([me, ...settings.owners.map((n) => `${n}@s.whatsapp.net`)]);
+    const targets = new Set([me, `${settings.owners[0]}@s.whatsapp.net`]);
     const platform = process.env.RENDER
       ? 'Render'
       : process.env.DYNO
@@ -135,7 +145,8 @@ async function notifyConnected(sock) {
       `🤖 Bot: ${settings.botName}`,
       `⌨️ Prefix: [ ${settings.prefix} ]`,
       `🌍 Mode: ${mode}`,
-      `👤 Owner: ${settings.owners[0] || me.split('@')[0]}`,
+      `👤 Owner: ${settings.developer.name} (+${settings.owners[0]})`,
+      `👁️ Auto view status: ${settings.autoViewStatus ? 'ON' : 'OFF'}`,
       `⚙️ Commands: ${commandCount()}`,
       `☁️ Host: ${platform}`,
       `🔐 Session: ${restoredFromEnv ? 'Restored' : 'Linked'}`,
@@ -144,8 +155,9 @@ async function notifyConnected(sock) {
     ]);
     const text =
       `${info}\n\n` +
-      `⚡ *Warming up*\n` +
-      `Replies can take 2–3 minutes while keys rebuild, then they are instant.\n\n` +
+      (settings.mongoUri
+        ? ''
+        : `⚡ *Tip*\nSet MONGODB_URI so the bot keeps its keys between redeploys and answers instantly.\n\n`) +
       `Type *${settings.prefix}menu* to get started.\n\n` +
       FOOTER;
     for (const jid of targets) await sock.sendMessage(jid, { text });
@@ -156,7 +168,21 @@ async function notifyConnected(sock) {
 
 async function start() {
   fs.mkdirSync(settings.sessionDir, { recursive: true });
-  const { state, saveCreds } = await useMultiFileAuthState(settings.sessionDir);
+  let authStore;
+  if (settings.mongoUri) {
+    try {
+      authStore = await require('./lib/mongoAuth').useMongoAuthState(settings.mongoUri, {
+        dbName: settings.mongoDb,
+        seedFile: path.join(settings.sessionDir, 'creds.json'),
+      });
+      if (!mongoLogged) log.info('Session storage: MongoDB (login and keys survive redeploys)');
+      mongoLogged = true;
+    } catch (e) {
+      log.error('MongoDB unavailable, using the local session folder instead:', e.message);
+    }
+  }
+  if (!authStore) authStore = await useMultiFileAuthState(settings.sessionDir);
+  const { state, saveCreds } = authStore;
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
@@ -175,7 +201,20 @@ async function start() {
     // Keep the connection alive so WhatsApp doesn't drop it quietly.
     keepAliveIntervalMs: 25000,
     connectTimeoutMs: 60000,
+    // Faster replies: ask the sender to resend an undecryptable message sooner than the default.
+    retryRequestDelayMs: 150,
+    getMessage: async (key) => sentCache.get(key.id),
   });
+
+  const origSend = sock.sendMessage.bind(sock);
+  sock.sendMessage = async (...args) => {
+    const res = await origSend(...args);
+    if (res?.key?.id && res.message) {
+      sentCache.set(res.key.id, res.message);
+      if (sentCache.size > 500) sentCache.delete(sentCache.keys().next().value);
+    }
+    return res;
+  };
 
   // Pairing-code login (no QR) when PAIRING_NUMBER is set and the device is not yet registered.
   if (settings.pairingNumber && !sock.authState.creds.registered) {
@@ -197,7 +236,7 @@ async function start() {
     guard.onParticipants(sock, update).catch((e) => log.error('Guard (members) error:', e));
   });
 
-  sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr && !settings.pairingNumber) {
       log.info('Scan this QR with WhatsApp > Linked devices:');
       qrcode.generate(qr, { small: true });
@@ -212,6 +251,7 @@ async function start() {
       const code = lastDisconnect?.error?.output?.statusCode;
       if (code === DisconnectReason.loggedOut) {
         log.error('Logged out. Delete the session folder and link the bot again.');
+        if (authStore.clear) await authStore.clear().catch(() => {});
         process.exit(1);
       }
       // 440: the same session was opened somewhere else (for example an overlapping deploy).
@@ -227,13 +267,19 @@ async function start() {
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     for (const msg of messages) {
+      // Status updates are never commands: just mark them as seen when auto view is on.
+      if (msg.key.remoteJid === 'status@broadcast') {
+        if (settings.autoViewStatus && type === 'notify' && !msg.key.fromMe && msg.message) {
+          sock.readMessages([msg.key]).catch((e) => log.warn(`Could not view status: ${e.message}`));
+        }
+        continue;
+      }
       // Accept live messages, plus your own recent messages synced from your phone.
       const age = Date.now() / 1000 - Number(String(msg.messageTimestamp || 0));
       if (type !== 'notify' && !(type === 'append' && msg.key.fromMe && age < 60)) continue;
-      log.info(
-        `[MSG] type=${type} from=${msg.key.remoteJid} fromMe=${!!msg.key.fromMe} ` +
-          `text="${getText(msg.message).slice(0, 40)}"`
-      );
+      if (getText(msg.message).startsWith(settings.prefix)) {
+        log.info(`[MSG] ${type} from=${msg.key.remoteJid} fromMe=${!!msg.key.fromMe} text="${getText(msg.message).slice(0, 40)}"`);
+      }
       if (settings.autoRead && !msg.key.fromMe) sock.readMessages([msg.key]).catch(() => {});
       // Not awaited: each message is handled on its own, so one slow command
       // (a download, an AI answer) never makes the other messages wait.
@@ -246,11 +292,14 @@ async function start() {
 // Render's free plan puts a service to sleep after ~15 minutes without web traffic, and a
 // sleeping bot answers slowly or not at all. Pinging our own public address every 10 minutes
 // keeps it awake. Render sets RENDER_EXTERNAL_URL automatically; you can also set KEEP_ALIVE_URL.
-const keepAliveUrl = process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL;
+const keepAliveUrl =
+  process.env.KEEP_ALIVE_URL ||
+  process.env.RENDER_EXTERNAL_URL ||
+  (process.env.HEROKU_APP_NAME ? `https://${process.env.HEROKU_APP_NAME}.herokuapp.com` : '');
 if (keepAliveUrl) {
   setInterval(() => {
     fetch(keepAliveUrl, { signal: AbortSignal.timeout(15000) }).catch(() => {});
-  }, 10 * 60 * 1000);
+  }, 4 * 60 * 1000);
   log.info(`Keep-alive ping enabled for ${keepAliveUrl}`);
 }
 
